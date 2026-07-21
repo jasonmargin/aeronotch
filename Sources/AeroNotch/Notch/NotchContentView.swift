@@ -31,14 +31,21 @@ struct NotchContentView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            notchPanel
+        ZStack(alignment: vm.presentationMode == .menuBarLeft ? .topTrailing : .top) {
+            switch vm.presentationMode {
+            case .notch:
+                notchModePanel
+            case .menuBarLeft:
+                menuBarModePanel
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: vm.presentationMode == .menuBarLeft ? .topTrailing : .top)
         .preferredColorScheme(.dark)
     }
 
-    private var notchPanel: some View {
+    // MARK: - Notch mode (panel expands downward out of the notch)
+
+    private var notchModePanel: some View {
         ZStack {
             if vm.state == .open {
                 // The top strip stays empty so it can slide *behind* the physical
@@ -70,6 +77,43 @@ struct NotchContentView: View {
             vm.handleTap()
         }
     }
+
+    // MARK: - Menu-bar mode (band from the screen's leading edge to the notch)
+
+    private var menuBarModePanel: some View {
+        HStack(spacing: 0) {
+            if vm.state == .open {
+                openContent
+                    .padding(.leading, 12)
+                    .padding(.trailing, 10)
+                    .frame(width: vm.menuBarBandWidth, height: vm.closedNotchSize.height, alignment: .leading)
+                    .background(Color.black)
+                    .shadow(color: .black.opacity(0.35), radius: 8)
+                    .transition(
+                        .move(edge: .leading)
+                            .combined(with: .opacity)
+                    )
+            }
+
+            // The (fake) notch itself — always rendered; seamless over the hardware
+            // notch, zero-gap to the band so hover never crosses a dead zone.
+            // Exact width (no overhang) so nothing bleeds past the notch's right edge.
+            Color.black
+                .frame(width: vm.exactClosedNotchWidth, height: vm.closedNotchSize.height)
+                .clipShape(NotchShape(topCornerRadius: 6, bottomCornerRadius: 14))
+        }
+        .padding(.trailing, 8)
+        .animation(vm.state == .open ? openAnimation : closeAnimation, value: vm.state)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            vm.handleHover(hovering)
+        }
+        .onTapGesture {
+            vm.handleTap()
+        }
+    }
+
+    // MARK: - Shared content
 
     @ViewBuilder
     private var openContent: some View {

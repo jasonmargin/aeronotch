@@ -18,18 +18,34 @@ final class NotchViewModel: ObservableObject {
 
     @Published var closedNotchSize: CGSize
 
+    /// Exact (zero-overhang) notch width — used in menuBarLeft mode where the
+    /// placeholder must never bleed past the hardware notch's right edge.
+    @Published private(set) var exactClosedNotchWidth: CGFloat
+
     /// Ideal content width reported live by the active feature (sticky across
     /// close/open so re-expanding doesn't jump).
     @Published var openContentWidth: CGFloat?
 
-    /// Panel width when open: content-driven with generous side margins, clamped
-    /// between a minimum (always wider than the closed notch) and the configured cap.
+    /// Presentation mode for the expanded popover.
+    var presentationMode: AeroNotchConfig.PresentationMode { config.presentationMode }
+
+    /// Width of the screen this notch lives on (tracked for strip/band sizing).
+    private(set) var screenWidth: CGFloat
+
+    /// Panel width when open (notch mode): content-driven with generous side
+    /// margins, clamped between a minimum and the configured cap.
     var effectiveOpenWidth: CGFloat {
         let content = openContentWidth ?? (closedNotchSize.width + 120)
         return min(max(content + 64, closedNotchSize.width + 80), config.maxOpenWidth)
     }
 
-    /// Maximum expanded size — the window itself is created at this size.
+    /// Band width in menuBarLeft mode: from the screen's leading edge to the
+    /// notch's leading edge — fixed per screen, independent of content.
+    var menuBarBandWidth: CGFloat {
+        max(200, screenWidth / 2 - exactClosedNotchWidth / 2)
+    }
+
+    /// Maximum expanded size (notch mode) — the window is created at this size.
     /// Height never lets content dip into the hardware-notch strip.
     var maxOpenSize: CGSize {
         CGSize(
@@ -38,7 +54,9 @@ final class NotchViewModel: ObservableObject {
         )
     }
 
-    private let config: AeroNotchConfig
+    /// Live config (updated when the user changes settings via the menu).
+    @Published private(set) var config: AeroNotchConfig
+
     private var peekTask: Task<Void, Never>?
     private var hoverOpenTask: Task<Void, Never>?
     private var hoverCloseTask: Task<Void, Never>?
@@ -46,10 +64,18 @@ final class NotchViewModel: ObservableObject {
     init(config: AeroNotchConfig, screen: NSScreen?) {
         self.config = config
         self.closedNotchSize = NotchMetrics.closedNotchSize(for: screen)
+        self.exactClosedNotchWidth = NotchMetrics.closedNotchSize(for: screen, overhang: 0).width
+        self.screenWidth = screen?.frame.width ?? 1440
+    }
+
+    func updateConfig(_ config: AeroNotchConfig) {
+        self.config = config
     }
 
     func refreshClosedNotchSize(for screen: NSScreen?) {
         closedNotchSize = NotchMetrics.closedNotchSize(for: screen)
+        exactClosedNotchWidth = NotchMetrics.closedNotchSize(for: screen, overhang: 0).width
+        if let screen { screenWidth = screen.frame.width }
     }
 
     // MARK: - Open / Close

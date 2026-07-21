@@ -31,6 +31,14 @@ private struct MenuBarMenu: View {
         }
         .disabled(!appDelegate.hasNotches)
 
+        Picker("Popover Style", selection: Binding(
+            get: { appDelegate.presentationMode },
+            set: { appDelegate.setPresentationMode($0) }
+        )) {
+            Text("Notch").tag(AeroNotchConfig.PresentationMode.notch)
+            Text("Menu Bar Strip").tag(AeroNotchConfig.PresentationMode.menuBarLeft)
+        }
+
         Toggle("Launch at Login", isOn: $launchAtLogin)
             .onChange(of: launchAtLogin) { _, newValue in
                 do {
@@ -64,8 +72,10 @@ private struct MenuBarMenu: View {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let config = AeroNotchConfig.load()
+    private let settings = SettingsStore(config: AeroNotchConfig.load())
     private let registry = NotchFeatureRegistry()
+
+    private var config: AeroNotchConfig { settings.current }
 
     private var workspaceStore: WorkspaceStore?
 
@@ -76,6 +86,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenObserver: NSObjectProtocol?
 
     var hasNotches: Bool { !viewModels.isEmpty }
+
+    var presentationMode: AeroNotchConfig.PresentationMode { settings.presentationMode }
+
+    func setPresentationMode(_ mode: AeroNotchConfig.PresentationMode) {
+        settings.setPresentationMode(mode)
+    }
 
     var versionString: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -94,6 +110,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         registry.register(store)
+
+        // Settings changed via the menu → update view models + rebuild windows live.
+        settings.onChange = { [weak self] config in
+            self?.applyConfig(config)
+        }
 
         rebuildWindows()
 
@@ -127,6 +148,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
         }
+    }
+
+    // MARK: - Settings
+
+    private func applyConfig(_ config: AeroNotchConfig) {
+        for viewModel in viewModels.values {
+            viewModel.forceClose()
+            viewModel.updateConfig(config)
+        }
+        rebuildWindows()
     }
 
     // MARK: - Peeking
@@ -164,10 +195,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModels.removeValue(forKey: id)
         }
 
-        let windowSize = CGSize(width: config.maxOpenWidth, height: config.openHeight + 40)
-
         for screen in screens {
             guard let id = screen.displayID else { continue }
+
+            // Menu-bar mode: the window spans only what the strip can ever occupy —
+            // its trailing edge stops at the notch's right edge, so nothing right
+            // of the notch is ever covered. Notch mode: centered fixed-width window.
+            let windowSize: CGSize
+            let windowX: CGFloat
+            if config.presentationMode == .menuBarLeft {
+                let exact = NotchMetrics.closedNotchSize(for: screen, overhang: 0)
+                windowSize = CGSize(
+                    width: screen.frame.width / 2 + exact.width / 2 + 8,
+                    height: config.openHeight + 40
+                )
+                windowX = screen.frame.minX
+            } else {
+                windowSize = CGSize(width: config.maxOpenWidth, height: config.openHeight + 40)
+                windowX = screen.frame.midX - windowSize.width / 2
+            }
 
             let viewModel: NotchViewModel
             if let existing = viewModels[id] {
@@ -203,7 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             window.setFrame(
                 NSRect(
-                    x: screen.frame.midX - windowSize.width / 2,
+                    x: windowX,
                     y: screen.frame.maxY - windowSize.height,
                     width: windowSize.width,
                     height: windowSize.height

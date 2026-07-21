@@ -47,7 +47,11 @@ struct WorkspacesFeatureView: View {
                 .padding(.horizontal, 10)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: .infinity,
+            alignment: vm.presentationMode == .menuBarLeft ? .leading : .center
+        )
         // Measure the row's *ideal* width (even when the visible copy scrolls)
         // and report it so the notch panel hugs the content.
         .background {
@@ -79,6 +83,7 @@ struct WorkspacesFeatureView: View {
                     apps: store.snapshot.appsByWorkspace[workspace] ?? [],
                     showIcons: config.showAppIcons,
                     maxIcons: config.maxAppIconsPerWorkspace,
+                    compact: vm.presentationMode == .menuBarLeft,
                     action: { store.switchToWorkspace(workspace, onMonitor: monitorID) }
                 )
             }
@@ -92,6 +97,7 @@ private struct WorkspacePillView: View {
     let apps: [AeroAppInfo]
     let showIcons: Bool
     let maxIcons: Int
+    let compact: Bool
     let action: () -> Void
 
     @State private var isHovering = false
@@ -119,7 +125,7 @@ private struct WorkspacePillView: View {
                 }
             }
             .padding(.horizontal, 9)
-            .padding(.vertical, 5)
+            .padding(.vertical, compact ? 3 : 5)
             .foregroundStyle(isFocused ? Color.white : Color.white.opacity(0.55))
             .background {
                 Capsule().fill(
