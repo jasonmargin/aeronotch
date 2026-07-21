@@ -69,9 +69,7 @@ struct WorkspacesFeatureView: View {
     }
 
     private func reportWidth(_ width: CGFloat) {
-        let current = vm.openContentWidth ?? 0
-        guard abs(current - width) > 0.5 else { return }
-        vm.openContentWidth = width
+        vm.reportOpenContentWidth(width, for: store.id)
     }
 
     private var pillsRow: some View {

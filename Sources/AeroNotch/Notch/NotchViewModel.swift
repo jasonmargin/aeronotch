@@ -22,12 +22,21 @@ final class NotchViewModel: ObservableObject {
     /// placeholder must never bleed past the hardware notch's right edge.
     @Published private(set) var exactClosedNotchWidth: CGFloat
 
-    /// Ideal content width reported live by the active feature (sticky across
-    /// close/open so re-expanding doesn't jump).
-    @Published var openContentWidth: CGFloat?
+    /// Ideal content widths reported live by each feature (keyed by feature
+    /// id), so switching features never shows the other's stale width.
+    @Published private(set) var openContentWidths: [String: CGFloat] = [:]
 
-    /// Feature the next open should preselect in the segmented switcher
-    /// (e.g. tapping the agent strip opens straight onto Agents). Cleared on close.
+    /// Feature shown when nothing was deep-linked (registration order default).
+    var defaultFeatureID = "workspaces"
+
+    func reportOpenContentWidth(_ width: CGFloat, for featureID: String) {
+        let current = openContentWidths[featureID] ?? 0
+        guard abs(current - width) > 0.5 else { return }
+        openContentWidths[featureID] = width
+    }
+
+    /// Feature the next open should preselect (e.g. the agent strip deep-links
+    /// to Agents). One-shot: cleared on close.
     @Published var requestedFeatureID: String?
 
     /// Presentation mode for the expanded popover.
@@ -39,7 +48,7 @@ final class NotchViewModel: ObservableObject {
     /// Panel width when open (notch mode): content-driven with generous side
     /// margins, clamped between a minimum and the configured cap.
     var effectiveOpenWidth: CGFloat {
-        let content = openContentWidth ?? (closedNotchSize.width + 120)
+        let content = openContentWidths[requestedFeatureID ?? defaultFeatureID] ?? (closedNotchSize.width + 120)
         return min(max(content + 64, closedNotchSize.width + 80), config.maxOpenWidth)
     }
 

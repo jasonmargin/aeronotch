@@ -147,73 +147,103 @@ struct NotchContentView: View {
         vm.state == .open && vm.requestedFeatureID == agentStore.id
     }
 
-    /// Agents popover width: hugs the measured content, capped.
-    private var agentsDetailWidth: CGFloat {
-        min((vm.openContentWidth ?? 220) + 24, 620)
+    /// Cap on the Agents panel width. Also determines how far the window
+    /// extends right of the notch, so the expanded panel can stay centered
+    /// on the notch (which is centered on the screen).
+    static let agentsPanelMaxWidth: CGFloat = 620
+
+    /// Span the window must cover right of screen-center: the wider of the
+    /// fake notch and the Agents panel cap.
+    private var notchSpan: CGFloat {
+        max(vm.exactClosedNotchWidth, NotchContentView.agentsPanelMaxWidth)
+    }
+
+    /// Trailing padding keeping the notch/panel's center pinned at
+    /// screen-center as it widens (window trailing edge = center + notchSpan/2 + 8).
+    private var notchTrailingPadding: CGFloat {
+        (notchSpan - agentsPanelWidth) / 2 + 8
+    }
+
+    /// Agents panel width: hugs the measured content, capped. Falls back to
+    /// the fake notch's width when unmeasured (first open) so it never jumps.
+    private var agentsPanelWidth: CGFloat {
+        showingAgentsDetail
+            ? min((vm.openContentWidths[agentStore.id] ?? 220) + 24, NotchContentView.agentsPanelMaxWidth)
+            : vm.exactClosedNotchWidth
+    }
+
+    /// The fake notch's height: grows downward when hosting the agents panel.
+    private var agentsPanelHeight: CGFloat {
+        showingAgentsDetail ? vm.closedNotchSize.height + 44 : vm.closedNotchSize.height
     }
 
     private var menuBarModePanel: some View {
-        ZStack(alignment: .topTrailing) {
-            HStack(spacing: 0) {
-                if vm.state == .open, !showingAgentsDetail {
-                    // Workspaces: band from the screen's leading edge to the notch.
-                    openContent
-                        .padding(.leading, 12)
-                        .padding(.trailing, 10)
-                        .frame(width: vm.menuBarBandWidth, height: vm.closedNotchSize.height, alignment: .leading)
-                        .background(Color.black)
-                        .shadow(color: .black.opacity(0.35), radius: 8)
-                        .transition(
-                            .move(edge: .leading)
-                                .combined(with: .opacity)
-                        )
-                }
-
-                // The (fake) notch itself — always rendered; seamless over the hardware
-                // notch, zero-gap to the band so hover never crosses a dead zone.
-                // Exact width (no overhang) so nothing bleeds past the notch's right edge.
-                Color.black
-                    .frame(width: vm.exactClosedNotchWidth, height: vm.closedNotchSize.height)
-                    .clipShape(NotchShape(topCornerRadius: 6, bottomCornerRadius: 14))
+        ZStack {
+            // Workspaces band — anchored to the screen's leading edge.
+            if vm.state == .open, !showingAgentsDetail {
+                openContent
+                    .padding(.leading, 12)
+                    .padding(.trailing, 10)
+                    .frame(width: vm.menuBarBandWidth, height: vm.closedNotchSize.height, alignment: .leading)
+                    .background(Color.black)
+                    .shadow(color: .black.opacity(0.35), radius: 8)
+                    .transition(
+                        .move(edge: .leading)
+                            .combined(with: .opacity)
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .contentShape(Rectangle())
+                    .onHover { vm.handleHover($0) }
+                    .onTapGesture { vm.handleTap() }
             }
-            .padding(.trailing, 8)
 
-            // The strip is a ZStack sibling, NOT in the HStack: no width
-            // negotiation with the band, ever (HStack pressure squished the
-            // glyph text). It rides on top of the band's right end — both are
-            // black, so overlap is invisible.
+            // The (fake) notch itself. When the Agents detail is open it
+            // *becomes* the panel — widening symmetrically around its center
+            // (screen-center) and growing downward, sessions inside.
+            ZStack(alignment: .top) {
+                if showingAgentsDetail {
+                    VStack(spacing: 0) {
+                        // Keep the notch strip empty; sessions live below it.
+                        Spacer()
+                            .frame(height: vm.closedNotchSize.height)
+                        openContent
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 6)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .transition(
+                        .scale(scale: 0.92, anchor: .top)
+                            .combined(with: .opacity)
+                    )
+                }
+            }
+            .frame(width: agentsPanelWidth, height: agentsPanelHeight)
+            .background(Color.black)
+            .clipShape(
+                NotchShape(
+                    topCornerRadius: showingAgentsDetail ? 19 : 6,
+                    bottomCornerRadius: showingAgentsDetail ? 24 : 14
+                )
+            )
+            .shadow(color: showingAgentsDetail ? .black.opacity(0.4) : .clear, radius: 10)
+            .padding(.trailing, notchTrailingPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .contentShape(Rectangle())
+            .onHover { vm.handleHover($0) }
+            .onTapGesture { vm.handleTap() }
+
+            // The strip rides the notch/panel's leading edge — glued 6pt left
+            // of it, following the center-pinned expansion.
             if showAgentsStrip {
                 agentsStrip
                     .frame(height: vm.closedNotchSize.height)
-                    .padding(.trailing, 8 + vm.exactClosedNotchWidth + 6)
-            }
-
-            if showingAgentsDetail {
-                // Agents detail: popover hanging from the notch itself, right
-                // edge flush with the notch's right edge (never the left band).
-                openContent
-                    .padding(.horizontal, 12)
-                    .frame(width: agentsDetailWidth, height: 40)
-                    .background(Color.black)
-                    .clipShape(NotchShape(topCornerRadius: 6, bottomCornerRadius: 14))
-                    .shadow(color: .black.opacity(0.35), radius: 8)
-                    .padding(.top, 4)
-                    .padding(.trailing, 8)
-                    .transition(
-                        .scale(scale: 0.9, anchor: .topTrailing)
-                            .combined(with: .opacity)
-                    )
+                    .padding(.trailing, notchTrailingPadding + agentsPanelWidth + 6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
         }
         .animation(vm.state == .open ? openAnimation : closeAnimation, value: vm.state)
-        .animation(widthAnimation, value: vm.requestedFeatureID)
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            vm.handleHover(hovering)
-        }
-        .onTapGesture {
-            vm.handleTap()
-        }
+        .animation(widthAnimation, value: showingAgentsDetail)
+        .animation(widthAnimation, value: vm.openContentWidths)
     }
 
     // MARK: - Shared content

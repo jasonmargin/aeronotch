@@ -274,15 +274,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for screen in screens {
             guard let id = screen.displayID else { continue }
 
-            // Menu-bar mode: the window spans only what the strip can ever occupy —
-            // its trailing edge stops at the notch's right edge, so nothing right
-            // of the notch is ever covered. Notch mode: centered fixed-width window.
+            // Menu-bar mode: the window spans from the screen's leading edge to
+            // past the notch — far enough that the Agents panel can stay
+            // *centered* on the notch. The region right of the notch is
+            // transparent and hit-tests to nil (click-through).
             let windowSize: CGSize
             let windowX: CGFloat
             if config.presentationMode == .menuBarLeft {
                 let exact = NotchMetrics.closedNotchSize(for: screen, overhang: 0)
+                let notchSpan = max(exact.width, NotchContentView.agentsPanelMaxWidth)
                 windowSize = CGSize(
-                    width: screen.frame.width / 2 + exact.width / 2 + 8,
+                    width: screen.frame.width / 2 + notchSpan / 2 + 8,
                     height: config.openHeight + 40
                 )
                 windowX = screen.frame.minX
