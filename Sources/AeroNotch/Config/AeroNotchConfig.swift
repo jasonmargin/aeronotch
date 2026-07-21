@@ -7,8 +7,8 @@ struct AeroNotchConfig: Codable, Sendable {
     var pollIntervalSeconds: TimeInterval = 2.0
     /// How long the notch stays expanded after a workspace switch.
     var peekDurationSeconds: TimeInterval = 1.5
-    /// Delay before hovering the notch expands it (small guard against accidental fly-bys).
-    var hoverOpenDelaySeconds: TimeInterval = 0.07
+    /// Delay before hovering the notch expands it (near-zero: just filters zero-time fly-bys).
+    var hoverOpenDelaySeconds: TimeInterval = 0.03
     /// Show every configured workspace, or only non-empty ones plus the focused one.
     var showEmptyWorkspaces: Bool = false
     /// Show app icons inside workspace pills.
