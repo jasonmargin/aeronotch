@@ -33,6 +33,15 @@ just install        # builds release binary, assembles + ad-hoc signs AeroNotch.
 
 Requires: Xcode/Swift toolchain, `just` (`brew install just`), AeroSpace.
 
+### Via Homebrew (tap)
+
+```sh
+brew tap jasonmargin/tap
+brew install --cask --no-quarantine aeronotch   # not notarized; --no-quarantine skips Gatekeeper friction
+```
+
+Maintainers: `just release <version>` (zip + sha256 + publish steps) → `just bump-cask <version>` (updates `homebrew-tap/Casks/aeronotch.rb`).
+
 Other recipes: `just build` · `just bundle` · `just run` (dev, no bundle) ·
 `just hook` (print the aerospace.toml line) · `just uninstall`
 
