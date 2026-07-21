@@ -132,14 +132,11 @@ struct NotchContentView: View {
 
     // MARK: - Menu-bar mode (band from the screen's leading edge to the notch)
 
-    /// Notch-mode strip X: glued to the closed notch's left edge; rides into
-    /// the open panel's top-left "forehead" (the always-empty notch strip)
-    /// so it stays visible and never leaves the window.
+    /// Notch-mode strip X: glued to the closed notch's left edge — stays put
+    /// while the panel expands around/under it (lands on the panel's
+    /// always-empty top strip).
     private var stripXOffset: CGFloat {
-        if vm.state == .open {
-            return -(vm.effectiveOpenWidth / 2) + stripWidth / 2 + 12
-        }
-        return -(vm.closedNotchSize.width / 2 + stripWidth / 2 + 6)
+        -(vm.closedNotchSize.width / 2 + stripWidth / 2 + 6)
     }
 
     /// True while the open panel is showing the Agents detail (vs. workspaces).
@@ -162,6 +159,13 @@ struct NotchContentView: View {
     /// screen-center as it widens (window trailing edge = center + notchSpan/2 + 8).
     private var notchTrailingPadding: CGFloat {
         (notchSpan - agentsPanelWidth) / 2 + 8
+    }
+
+    /// Trailing padding for the strip, glued to the *closed* notch's leading
+    /// edge. Constant: the indicator stays put while the panel expands
+    /// around/under it (it lands on the panel's empty top strip).
+    private var stripTrailingPadding: CGFloat {
+        (notchSpan - vm.exactClosedNotchWidth) / 2 + 8 + vm.exactClosedNotchWidth + 6
     }
 
     /// Agents panel width: hugs the measured content, capped. Falls back to
@@ -232,12 +236,12 @@ struct NotchContentView: View {
             .onHover { vm.handleHover($0) }
             .onTapGesture { vm.handleTap() }
 
-            // The strip rides the notch/panel's leading edge — glued 6pt left
-            // of it, following the center-pinned expansion.
+            // The strip stays glued to the closed notch's leading edge,
+            // even as the panel expands underneath it.
             if showAgentsStrip {
                 agentsStrip
                     .frame(height: vm.closedNotchSize.height)
-                    .padding(.trailing, notchTrailingPadding + agentsPanelWidth + 6)
+                    .padding(.trailing, stripTrailingPadding)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
         }
