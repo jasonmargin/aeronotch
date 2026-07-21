@@ -26,6 +26,20 @@ final class SettingsStore: ObservableObject {
         onChange?(current)
     }
 
+    func setAgentsShowClosedIndicator(_ value: Bool) {
+        guard value != current.agentsShowClosedIndicator else { return }
+        current.agentsShowClosedIndicator = value
+        persist()
+        onChange?(current)
+    }
+
+    func setAgentsEnabled(_ value: Bool) {
+        guard value != current.agentsEnabled else { return }
+        current.agentsEnabled = value
+        persist()
+        onChange?(current)
+    }
+
     private func persist() {
         let fileManager = FileManager.default
         try? fileManager.createDirectory(

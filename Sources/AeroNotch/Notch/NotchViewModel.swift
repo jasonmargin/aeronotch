@@ -26,6 +26,10 @@ final class NotchViewModel: ObservableObject {
     /// close/open so re-expanding doesn't jump).
     @Published var openContentWidth: CGFloat?
 
+    /// Feature the next open should preselect in the segmented switcher
+    /// (e.g. tapping the agent strip opens straight onto Agents). Cleared on close.
+    @Published var requestedFeatureID: String?
+
     /// Presentation mode for the expanded popover.
     var presentationMode: AeroNotchConfig.PresentationMode { config.presentationMode }
 

@@ -11,7 +11,8 @@ struct AeroNotchConfig: Codable, Sendable {
         case menuBarLeft
     }
 
-    /// Presentation mode for the expanded popover.
+    /// Presentation mode for the *workspaces* popover.
+    /// (The Agents detail always opens at the notch itself.)
     var presentationMode: PresentationMode = .notch
     /// Fallback polling interval for workspace state (the exec hook is the primary signal).
     var pollIntervalSeconds: TimeInterval = 2.0
@@ -35,11 +36,21 @@ struct AeroNotchConfig: Codable, Sendable {
     /// Explicit path to the aerospace binary (auto-detected when nil).
     var aerospacePath: String? = nil
 
+    /// Polling cadence for `herdr agent list`.
+    var agentsPollIntervalSeconds: TimeInterval = 3.0
+    /// Master switch for the herdr agent-session feature (panel segment + closed-notch indicator).
+    var agentsEnabled: Bool = true
+    /// Show the persistent agent-status strip pinned to the notch's left edge.
+    var agentsShowClosedIndicator: Bool = true
+    /// Explicit path to the herdr binary (auto-detected when nil).
+    var herdrPath: String? = nil
+
     enum CodingKeys: String, CodingKey {
         case presentationMode
         case pollIntervalSeconds, peekDurationSeconds, hoverOpenDelaySeconds
         case showEmptyWorkspaces, showAppIcons, maxAppIconsPerWorkspace
         case maxOpenWidth, openHeight, hiddenWorkspaces, aerospacePath
+        case agentsEnabled, agentsPollIntervalSeconds, agentsShowClosedIndicator, herdrPath
     }
 
     /// `openWidth` was the fixed expanded width in <=0.1; now treated as the cap.
@@ -66,6 +77,10 @@ struct AeroNotchConfig: Codable, Sendable {
         openHeight = try c.decodeIfPresent(CGFloat.self, forKey: .openHeight) ?? defaults.openHeight
         hiddenWorkspaces = try c.decodeIfPresent([String].self, forKey: .hiddenWorkspaces) ?? defaults.hiddenWorkspaces
         aerospacePath = try c.decodeIfPresent(String.self, forKey: .aerospacePath)
+        agentsEnabled = try c.decodeIfPresent(Bool.self, forKey: .agentsEnabled) ?? defaults.agentsEnabled
+        agentsPollIntervalSeconds = try c.decodeIfPresent(TimeInterval.self, forKey: .agentsPollIntervalSeconds) ?? defaults.agentsPollIntervalSeconds
+        agentsShowClosedIndicator = try c.decodeIfPresent(Bool.self, forKey: .agentsShowClosedIndicator) ?? defaults.agentsShowClosedIndicator
+        herdrPath = try c.decodeIfPresent(String.self, forKey: .herdrPath)
     }
 
     static var configDirectory: URL {

@@ -31,13 +31,24 @@ private struct MenuBarMenu: View {
         }
         .disabled(!appDelegate.hasNotches)
 
-        Picker("Popover Style", selection: Binding(
+        Picker("Workspace Style", selection: Binding(
             get: { appDelegate.presentationMode },
             set: { appDelegate.setPresentationMode($0) }
         )) {
             Text("Notch").tag(AeroNotchConfig.PresentationMode.notch)
             Text("Menu Bar Strip").tag(AeroNotchConfig.PresentationMode.menuBarLeft)
         }
+
+        Toggle("Agents", isOn: Binding(
+            get: { appDelegate.agentsEnabled },
+            set: { appDelegate.setAgentsEnabled($0) }
+        ))
+
+        Toggle("Agent Indicator", isOn: Binding(
+            get: { appDelegate.agentsShowClosedIndicator },
+            set: { appDelegate.setAgentsShowClosedIndicator($0) }
+        ))
+        .disabled(!appDelegate.agentsEnabled)
 
         Toggle("Launch at Login", isOn: $launchAtLogin)
             .onChange(of: launchAtLogin) { _, newValue in
@@ -79,11 +90,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var workspaceStore: WorkspaceStore?
 
+    /// herdr agent-session tracking. Always injected into the view hierarchy;
+    /// polling + panel registration are gated on `agentsEnabled` (live-toggleable).
+    private lazy var agentStore: AgentSessionStore = {
+        let client = try? HerdrClient(preferredPath: settings.current.herdrPath)
+        return AgentSessionStore(client: client, config: settings.current)
+    }()
+
     /// One window + view model per screen, keyed by CoreGraphics display id.
     private var windows: [CGDirectDisplayID: NotchWindow] = [:]
     private var viewModels: [CGDirectDisplayID: NotchViewModel] = [:]
 
     private var screenObserver: NSObjectProtocol?
+    private var agentsObserver: NSObjectProtocol?
 
     var hasNotches: Bool { !viewModels.isEmpty }
 
@@ -91,6 +110,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func setPresentationMode(_ mode: AeroNotchConfig.PresentationMode) {
         settings.setPresentationMode(mode)
+    }
+
+    var agentsEnabled: Bool { settings.current.agentsEnabled }
+
+    func setAgentsEnabled(_ value: Bool) {
+        settings.setAgentsEnabled(value)
+    }
+
+    var agentsShowClosedIndicator: Bool { settings.current.agentsShowClosedIndicator }
+
+    func setAgentsShowClosedIndicator(_ value: Bool) {
+        settings.setAgentsShowClosedIndicator(value)
     }
 
     var versionString: String {
@@ -110,6 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         registry.register(store)
+        syncAgentsFeature(config)
 
         // Settings changed via the menu → update view models + rebuild windows live.
         settings.onChange = { [weak self] config in
@@ -117,6 +149,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         rebuildWindows()
+
+        agentsObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notifications.agentsRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.openAgentsDetail()
+            }
+        }
 
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -145,8 +187,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         workspaceStore?.stop()
+        agentStore.stop()
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
+        }
+        if let agentsObserver {
+            DistributedNotificationCenter.default().removeObserver(agentsObserver)
         }
     }
 
@@ -157,7 +203,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.forceClose()
             viewModel.updateConfig(config)
         }
+        syncAgentsFeature(config)
         rebuildWindows()
+    }
+
+    /// Live on/off for the Agents feature: start/stop polling and add/remove
+    /// the panel segment without a relaunch.
+    private func syncAgentsFeature(_ config: AeroNotchConfig) {
+        if config.agentsEnabled {
+            registry.register(agentStore)
+            agentStore.start()
+        } else {
+            registry.unregister(withID: agentStore.id)
+            agentStore.stop()
+        }
     }
 
     // MARK: - Peeking
@@ -179,6 +238,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.peek()
         } else {
             viewModels.values.forEach { $0.peek() }
+        }
+    }
+
+    /// External `ping-agents`: transiently open the Agents detail popover on
+    /// the screen holding the cursor (fallback: all screens).
+    private func openAgentsDetail() {
+        let targets: [NotchViewModel]
+        if let screen = NSScreen.screenWithMouse,
+           let id = screen.displayID,
+           let viewModel = viewModels[id] {
+            targets = [viewModel]
+        } else {
+            targets = Array(viewModels.values)
+        }
+        for viewModel in targets {
+            viewModel.requestedFeatureID = agentStore.id
+            viewModel.peek(duration: 6)
         }
     }
 
@@ -242,6 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 rootView: NotchContentView()
                     .environmentObject(viewModel)
                     .environmentObject(registry)
+                    .environmentObject(agentStore)
                     .environment(
                         \.aerospaceMonitorID,
                         workspaceStore?.aerospaceMonitorID(forAppKitScreenIndex: screen.appKitScreenIndex)

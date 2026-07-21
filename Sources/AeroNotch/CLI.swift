@@ -16,13 +16,21 @@ enum AeroNotchCLI {
             )
             exit(0)
 
+        case "ping-agents":
+            DistributedNotificationCenter.default().postNotificationName(
+                Notifications.agentsRequested,
+                object: nil,
+                deliverImmediately: true
+            )
+            exit(0)
+
         case "--version", "version":
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
             print("AeroNotch \(version)")
             exit(0)
 
         default:
-            FileHandle.standardError.write(Data("usage: AeroNotch [ping-workspace-change | --version]\n".utf8))
+            FileHandle.standardError.write(Data("usage: AeroNotch [ping-workspace-change | ping-agents | --version]\n".utf8))
             exit(64)
         }
     }
