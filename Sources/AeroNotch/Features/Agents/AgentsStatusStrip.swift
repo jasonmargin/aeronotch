@@ -65,8 +65,10 @@ struct AgentsStatusStrip: View {
                 HStack(spacing: 3) {
                     AgentGlyph(agent: group.agent, size: 9)
                         .foregroundStyle(Color.white.opacity(0.7))
+                        .layoutPriority(1)
                     ForEach(group.sessions.prefix(maxDotsPerGroup)) { session in
                         AgentStatusDot(status: session.status, pulsing: pulsing)
+                            .layoutPriority(1)
                     }
                     if group.sessions.count > maxDotsPerGroup {
                         Text("+\(group.sessions.count - maxDotsPerGroup)")

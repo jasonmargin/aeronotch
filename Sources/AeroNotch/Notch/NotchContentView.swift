@@ -153,7 +153,7 @@ struct NotchContentView: View {
     }
 
     private var menuBarModePanel: some View {
-        VStack(alignment: .trailing, spacing: 0) {
+        ZStack(alignment: .topTrailing) {
             HStack(spacing: 0) {
                 if vm.state == .open, !showingAgentsDetail {
                     // Workspaces: band from the screen's leading edge to the notch.
@@ -168,12 +168,6 @@ struct NotchContentView: View {
                                 .combined(with: .opacity)
                         )
                 }
-                if showAgentsStrip {
-                    // Always-on indicator glued to the notch's left edge —
-                    // stays put whether the panel is open or closed.
-                    agentsStrip
-                        .padding(.trailing, 6)
-                }
 
                 // The (fake) notch itself — always rendered; seamless over the hardware
                 // notch, zero-gap to the band so hover never crosses a dead zone.
@@ -183,6 +177,16 @@ struct NotchContentView: View {
                     .clipShape(NotchShape(topCornerRadius: 6, bottomCornerRadius: 14))
             }
             .padding(.trailing, 8)
+
+            // The strip is a ZStack sibling, NOT in the HStack: no width
+            // negotiation with the band, ever (HStack pressure squished the
+            // glyph text). It rides on top of the band's right end — both are
+            // black, so overlap is invisible.
+            if showAgentsStrip {
+                agentsStrip
+                    .frame(height: vm.closedNotchSize.height)
+                    .padding(.trailing, 8 + vm.exactClosedNotchWidth + 6)
+            }
 
             if showingAgentsDetail {
                 // Agents detail: popover hanging from the notch itself, right
