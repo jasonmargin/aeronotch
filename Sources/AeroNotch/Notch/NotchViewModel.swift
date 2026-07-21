@@ -108,7 +108,7 @@ final class NotchViewModel: ObservableObject {
             // Small grace period so the notch doesn't collapse on brief exits
             // (e.g. crossing the gap between the notch and a pill).
             hoverCloseTask = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(150))
+                try? await Task.sleep(for: .milliseconds(100))
                 guard !Task.isCancelled, let self else { return }
                 guard !self.isHovering else { return }
                 if self.state == .open {

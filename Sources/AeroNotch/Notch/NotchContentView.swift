@@ -13,10 +13,10 @@ struct NotchContentView: View {
     @State private var activeFeatureID: String?
 
     private var openAnimation: Animation {
-        .spring(response: 0.3, dampingFraction: 0.78, blendDuration: 0)
+        .spring(response: 0.22, dampingFraction: 0.8, blendDuration: 0)
     }
     private var closeAnimation: Animation {
-        .spring(response: 0.28, dampingFraction: 0.95, blendDuration: 0)
+        .spring(response: 0.2, dampingFraction: 0.95, blendDuration: 0)
     }
 
     private var topRadius: CGFloat { vm.state == .open ? 19 : 6 }
@@ -27,7 +27,7 @@ struct NotchContentView: View {
             : vm.closedNotchSize
     }
     private var widthAnimation: Animation {
-        .spring(response: 0.35, dampingFraction: 0.85, blendDuration: 0)
+        .spring(response: 0.26, dampingFraction: 0.85, blendDuration: 0)
     }
 
     var body: some View {
