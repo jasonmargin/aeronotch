@@ -20,6 +20,9 @@ Inspired by and architected after [TheBoringNotch](https://github.com/TheBoredTe
 - **Multi-monitor** — one notch per display; each screen highlights the workspace visible
   on *that* monitor (via AeroSpace's `monitor-appkit-nsscreen-screens-id` bridge).
 - **Peek on switch** — expands briefly on the screen you switched on, then retracts.
+- **Two presentation modes** — `notch` (panel expands out of the notch) or `menuBarLeft`
+  (a menu-bar-height band from the screen's leading edge to the notch). Switch live from
+  the menu bar icon → **Popover Style**, or set `presentationMode` in the config.
 - **Hover to open** — small delay (configurable) so casual fly-bys don't open it.
 - **Extensible** — features plug into a `NotchFeature` registry; >1 feature automatically
   gets a segmented switcher inside the notch.
@@ -65,6 +68,7 @@ creates a fully-populated default):
 
 | key | default | meaning |
 |---|---|---|
+| `presentationMode` | `"notch"` | `"notch"` or `"menuBarLeft"` (band from screen's left edge to the notch) |
 | `pollIntervalSeconds` | `2.0` | fallback poll cadence |
 | `peekDurationSeconds` | `1.5` | how long the notch stays up after a switch |
 | `hoverOpenDelaySeconds` | `0.12` | hover dwell before opening |
