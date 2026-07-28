@@ -49,7 +49,9 @@ Requires: Xcode/Swift toolchain, `just` (`brew install just`), AeroSpace.
 
 ```sh
 brew tap jasonmargin/tap
-brew install --cask --no-quarantine aeronotch   # not notarized; --no-quarantine skips Gatekeeper friction
+brew install --cask aeronotch
+# Not notarized — clear Gatekeeper quarantine after install:
+xattr -dr com.apple.quarantine /Applications/AeroNotch.app
 ```
 
 Maintainers: `just release <version>` (zip + sha256 + publish steps) → `just bump-cask <version>` (updates `homebrew-tap/Casks/aeronotch.rb`).
