@@ -51,9 +51,11 @@ Requires: Xcode/Swift toolchain, `just` (`brew install just`), AeroSpace.
 brew tap jasonmargin/tap
 brew trust jasonmargin/tap        # Homebrew 6+ requires trusting third-party taps
 brew install --cask aeronotch
-# Not notarized — clear Gatekeeper quarantine after install:
-xattr -dr com.apple.quarantine /Applications/AeroNotch.app
 ```
+
+Not notarized (ad-hoc signature) — the cask strips the Gatekeeper quarantine flag
+automatically on install. If macOS still complains, run
+`xattr -dr com.apple.quarantine /Applications/AeroNotch.app`.
 
 Maintainers: `just release <version>` (zip + sha256 + publish steps) → `just bump-cask <version>` (updates `homebrew-tap/Casks/aeronotch.rb`).
 
