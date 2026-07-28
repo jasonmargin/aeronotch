@@ -53,9 +53,10 @@ active. The agent status strip is pinned to the notch's left edge.
 
 ### Triggers
 
-- **Only pill hover** expands the flyout.
-- **Workspace switches do NOT auto-expand** in this mode. The pill's label updates **quietly** to the
-  new focused workspace (no flash). This removes the `peek()`-on-switch behavior *for this mode only*.
+- **Pill hover** expands the flyout and holds it open while hovered.
+- **Workspace switches also peek** the flyout: a switch transiently expands the pill into the full row
+  (via the existing `peek()` path), then it auto-collapses back to the resting label after
+  `peekDurationSeconds`. Same peek behavior as `.notch` mode.
 - The agent strip retains its own independent hover→Agents behavior (unchanged).
 
 ## Components & changes

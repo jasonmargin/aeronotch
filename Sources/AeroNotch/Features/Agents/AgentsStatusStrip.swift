@@ -23,7 +23,7 @@ struct AgentStatusDot: View {
                 Circle().strokeBorder(Color.white.opacity(0.25), lineWidth: 1)
             }
         }
-        .frame(width: 5.5, height: 5.5)
+        .frame(width: 7, height: 7)
         .opacity(animated ? (pulsing ? 1 : 0.35) : 1)
     }
 }
@@ -60,10 +60,10 @@ struct AgentsStatusStrip: View {
     }
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 8) {
             ForEach(groups, id: \.agent) { group in
-                HStack(spacing: 3) {
-                    AgentGlyph(agent: group.agent, size: 9)
+                HStack(spacing: 4) {
+                    AgentGlyph(agent: group.agent, size: 11)
                         .foregroundStyle(Color.white.opacity(0.7))
                         .layoutPriority(1)
                     ForEach(group.sessions.prefix(maxDotsPerGroup)) { session in
@@ -72,13 +72,15 @@ struct AgentsStatusStrip: View {
                     }
                     if group.sessions.count > maxDotsPerGroup {
                         Text("+\(group.sessions.count - maxDotsPerGroup)")
-                            .font(.system(size: 7, weight: .medium))
+                            .font(.system(size: 8, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
                     }
                 }
             }
         }
-        .padding(.horizontal, 7)
+        // Match the workspace pill's capsule height (NotchContentView.menuBarPillContentHeight).
+        .frame(height: NotchContentView.menuBarPillContentHeight)
+        .padding(.horizontal, 9)
         .padding(.vertical, 4)
         .background {
             ZStack {

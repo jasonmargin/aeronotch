@@ -282,7 +282,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let windowX: CGFloat
             if config.presentationMode == .menuBarLeft {
                 let exact = NotchMetrics.closedNotchSize(for: screen, overhang: 0)
-                let notchSpan = max(exact.width, NotchContentView.agentsPanelMaxWidth)
+                let notchSpan = max(exact.width, NotchContentView.panelMaxWidth)
                 windowSize = CGSize(
                     width: screen.frame.width / 2 + notchSpan / 2 + 8,
                     height: config.openHeight + 40

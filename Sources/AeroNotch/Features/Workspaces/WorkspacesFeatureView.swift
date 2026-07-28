@@ -28,6 +28,16 @@ struct WorkspacesFeatureView: View {
     }
 
     var body: some View {
+        if vm.presentationMode == .menuBarLeft {
+            menuBarPillContent
+        } else {
+            notchContent
+        }
+    }
+
+    // MARK: - Notch mode (downward panel)
+
+    private var notchContent: some View {
         Group {
             if !store.isAvailable {
                 Label("AeroSpace not found", systemImage: "exclamationmark.triangle")
@@ -47,11 +57,7 @@ struct WorkspacesFeatureView: View {
                 .padding(.horizontal, 10)
             }
         }
-        .frame(
-            maxWidth: .infinity,
-            maxHeight: .infinity,
-            alignment: vm.presentationMode == .menuBarLeft ? .leading : .center
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         // Measure the row's *ideal* width (even when the visible copy scrolls)
         // and report it so the notch panel hugs the content.
         .background {
@@ -65,6 +71,59 @@ struct WorkspacesFeatureView: View {
                             .onChange(of: geo.size.width) { _, newWidth in reportWidth(newWidth) }
                     }
                 )
+        }
+    }
+
+    // MARK: - Menu-bar mode (self-sizing pill; morphs left on hover)
+
+    /// Resting = focused-workspace name only; hovering = the full pill row.
+    /// Intrinsically sized so the hosting capsule hugs it and grows leftward.
+    @ViewBuilder
+    private var menuBarPillContent: some View {
+        if !store.isAvailable {
+            Label("AeroSpace", systemImage: "exclamationmark.triangle")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.yellow)
+                .fixedSize()
+        } else if !isExpanded || workspaces.isEmpty {
+            restingLabel.fixedSize()
+        } else {
+            pillsRow.fixedSize()
+        }
+    }
+
+    /// The pill only morphs into the full list when the *workspaces* feature is
+    /// the active one — so hovering the agents pill (which opens the shared
+    /// state) never expands this pill.
+    private var isExpanded: Bool {
+        vm.state == .open && (vm.requestedFeatureID == nil || vm.requestedFeatureID == store.id)
+    }
+
+    /// Resting pill: focused workspace name plus its app icons (same glyphs the
+    /// expanded row shows for that workspace).
+    private var restingLabel: some View {
+        let focused = focusedWorkspace
+        let apps = focused.flatMap { store.snapshot.appsByWorkspace[$0] } ?? []
+        return HStack(spacing: 5) {
+            Text(focused ?? "—")
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+
+            if config.showAppIcons && !apps.isEmpty {
+                HStack(spacing: 2) {
+                    ForEach(apps.prefix(config.maxAppIconsPerWorkspace), id: \.self) { app in
+                        Image(nsImage: AppIconProvider.shared.icon(for: app))
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 13, height: 13)
+                    }
+                    if apps.count > config.maxAppIconsPerWorkspace {
+                        Text("+\(apps.count - config.maxAppIconsPerWorkspace)")
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
     }
 

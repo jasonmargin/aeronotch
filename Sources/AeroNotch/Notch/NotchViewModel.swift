@@ -1,5 +1,8 @@
 import SwiftUI
 import Combine
+import OSLog
+
+private let stateLogger = Logger(subsystem: "aeronotch", category: "state")
 
 /// Owns the notch's expansion state and every timer that can change it.
 /// Three ways the notch opens:
@@ -52,12 +55,6 @@ final class NotchViewModel: ObservableObject {
         return min(max(content + 64, closedNotchSize.width + 80), config.maxOpenWidth)
     }
 
-    /// Band width in menuBarLeft mode: from the screen's leading edge to the
-    /// notch's leading edge — fixed per screen, independent of content.
-    var menuBarBandWidth: CGFloat {
-        max(200, screenWidth / 2 - exactClosedNotchWidth / 2)
-    }
-
     /// Maximum expanded size (notch mode) — the window is created at this size.
     /// Height never lets content dip into the hardware-notch strip.
     var maxOpenSize: CGSize {
@@ -97,6 +94,7 @@ final class NotchViewModel: ObservableObject {
         cancelPeek()
         hoverCloseTask?.cancel()
         state = .open
+        stateLogger.info("open() feature=\(self.requestedFeatureID ?? "nil", privacy: .public)")
     }
 
     /// Closes only when the cursor isn't over the notch.
@@ -108,6 +106,7 @@ final class NotchViewModel: ObservableObject {
     func forceClose() {
         cancelPeek()
         state = .closed
+        stateLogger.info("forceClose()")
     }
 
     /// Transient expansion for workspace switches. Restarts its own timer on
@@ -131,6 +130,7 @@ final class NotchViewModel: ObservableObject {
     func handleHover(_ hovering: Bool) {
         hoverOpenTask?.cancel()
         hoverCloseTask?.cancel()
+        stateLogger.info("hover=\(hovering, privacy: .public) state=\(String(describing: self.state), privacy: .public)")
 
         if hovering {
             isHovering = true
