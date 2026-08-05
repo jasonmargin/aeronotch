@@ -32,6 +32,12 @@ final class NotchWindow: NSPanel {
         hasShadow = false
     }
 
-    override var canBecomeKey: Bool { false }
+    /// Text input (the Notes notepad) needs a key window. Off by default so
+    /// the notch never steals keyboard focus; NotchViewModel flips this on
+    /// only while the Notes panel is up. `.nonactivatingPanel` lets the panel
+    /// become key without activating the app.
+    var allowsKeyboardFocus = false
+
+    override var canBecomeKey: Bool { allowsKeyboardFocus }
     override var canBecomeMain: Bool { false }
 }

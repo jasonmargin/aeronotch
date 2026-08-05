@@ -9,7 +9,9 @@ import SwiftUI
 struct NotchContentView: View {
     @EnvironmentObject var vm: NotchViewModel
     @EnvironmentObject var registry: NotchFeatureRegistry
+    @EnvironmentObject var workspaceStore: WorkspaceStore
     @EnvironmentObject var agentStore: AgentSessionStore
+    @EnvironmentObject var notesStore: NotesStore
 
     /// Persistent herdr agent-status strip pinned to the notch's left edge.
     /// Always visible while the feature is enabled and sessions exist —
@@ -20,21 +22,95 @@ struct NotchContentView: View {
             && !agentStore.sessions.isEmpty
     }
 
-    /// Measured strip width — lets notch mode offset the (self-sizing) strip
-    /// left of the centered panel without disturbing the panel's centering.
-    @State private var stripWidth: CGFloat = 0
+    /// Persistent notes strip in the left cluster, between the workspaces
+    /// capsule and the agents strip. Always visible while the feature is
+    /// enabled (it's the entry point into the drop-down, so it shows even
+    /// with zero open to-dos).
+    private var showNotesStrip: Bool {
+        vm.config.notesEnabled
+            && vm.config.notesShowClosedIndicator
+            && !vm.isPinned
+    }
+
+    /// Persistent workspaces capsule (active workspace on this screen) —
+    /// the outboard-most strip in the left cluster. The notch stays closed
+    /// until hovered; this capsule is the at-a-glance state.
+    private var showWorkspacesStrip: Bool { true }
+
+    /// Measured width of the whole strip cluster — lets notch mode offset
+    /// the (self-sizing) cluster left of the centered panel without
+    /// disturbing the panel's centering.
+    @State private var clusterWidth: CGFloat = 0
+
+    @ViewBuilder
+    private var workspacesStrip: some View {
+        WorkspacesStatusStrip(store: workspaceStore, config: vm.config)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if vm.isPinned { vm.temporaryFeatureID = workspaceStore.id }
+                vm.requestedFeatureID = nil
+                vm.handleTap()
+            }
+            .onHover { hovering in
+                if hovering {
+                    // Workspaces is the default feature — clear any stale deep
+                    // link. Pinned: show the grid over the notes panel instead.
+                    if vm.isPinned {
+                        vm.temporaryFeatureID = workspaceStore.id
+                    } else {
+                        vm.requestedFeatureID = nil
+                    }
+                } else {
+                    vm.temporaryFeatureID = nil
+                }
+                vm.handleHover(hovering)
+            }
+            .transition(.opacity)
+    }
 
     @ViewBuilder
     private var agentsStrip: some View {
         AgentsStatusStrip(store: agentStore)
             .contentShape(Rectangle())
             .onTapGesture {
+                // Pinned: the tap can't steal the panel from Notes — show the
+                // Agents list as a transient overlay instead.
+                if vm.isPinned { vm.temporaryFeatureID = agentStore.id }
                 vm.requestedFeatureID = agentStore.id
                 vm.handleTap()
             }
             .onHover { hovering in
                 if hovering {
-                    vm.requestedFeatureID = agentStore.id
+                    // Pinned: hover shows Agents *over* the notes panel
+                    // (same height, reverts on exit) instead of deep-linking.
+                    if vm.isPinned {
+                        vm.temporaryFeatureID = agentStore.id
+                    } else {
+                        vm.requestedFeatureID = agentStore.id
+                    }
+                } else {
+                    vm.temporaryFeatureID = nil
+                    if vm.state == .closed {
+                        // Never opened — don't let the deep link go stale.
+                        vm.requestedFeatureID = nil
+                    }
+                }
+                vm.handleHover(hovering)
+            }
+            .transition(.opacity)
+    }
+
+    @ViewBuilder
+    private var notesStrip: some View {
+        NotesStatusStrip(store: notesStore)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                vm.requestedFeatureID = notesStore.id
+                vm.handleTap()
+            }
+            .onHover { hovering in
+                if hovering {
+                    vm.requestedFeatureID = notesStore.id
                 } else if vm.state == .closed {
                     // Never opened — don't let the deep link go stale.
                     vm.requestedFeatureID = nil
@@ -55,7 +131,7 @@ struct NotchContentView: View {
     private var bottomRadius: CGFloat { vm.state == .open ? 24 : 14 }
     private var currentSize: CGSize {
         vm.state == .open
-            ? CGSize(width: vm.effectiveOpenWidth, height: vm.maxOpenSize.height)
+            ? CGSize(width: vm.effectiveOpenWidth, height: vm.effectiveOpenHeight)
             : vm.closedNotchSize
     }
     private var widthAnimation: Animation {
@@ -71,41 +147,65 @@ struct NotchContentView: View {
                 menuBarModePanel
             }
 
-            // Notch mode: strip sits left of the centered panel, offset by its
-            // measured width. (menuBarLeft mode renders it as an HStack sibling.)
-            if vm.presentationMode == .notch, showAgentsStrip {
-                agentsStrip
+            // Notch mode: the strip cluster sits just left of the centered
+            // panel, offset by its measured width — workspaces (outboard),
+            // notes, agents. (menuBarLeft mode renders it as an HStack
+            // sibling instead.)
+            if vm.presentationMode == .notch {
+                stripCluster
                     .background(
                         GeometryReader { geo in
-                            Color.clear.preference(key: AgentsStripWidthKey.self, value: geo.size.width)
+                            Color.clear.preference(key: StripClusterWidthKey.self, value: geo.size.width)
                         }
                     )
                     .frame(height: vm.closedNotchSize.height)
-                    .offset(x: stripXOffset)
+                    .offset(x: clusterXOffset)
                     .animation(vm.state == .open ? openAnimation : closeAnimation, value: vm.state)
                     .animation(widthAnimation, value: vm.effectiveOpenWidth)
+                    .animation(widthAnimation, value: clusterWidth)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: vm.presentationMode == .menuBarLeft ? .topTrailing : .top)
         .preferredColorScheme(.dark)
-        .onPreferenceChange(AgentsStripWidthKey.self) { stripWidth = $0 }
+        .onPreferenceChange(StripClusterWidthKey.self) { clusterWidth = $0 }
         .onChange(of: vm.state) { _, newState in
             // One-shot deep link: applies to a single open, then resets.
             if newState == .closed { vm.requestedFeatureID = nil }
         }
     }
 
+    /// The left-edge cluster, ordered outboard → inboard: workspaces, notes,
+    /// agents. Visibility rules live on each strip; the HStack just hugs
+    /// whatever is present.
+    @ViewBuilder
+    private var stripCluster: some View {
+        HStack(spacing: 6) {
+            if showWorkspacesStrip { workspacesStrip }
+            if showNotesStrip { notesStrip }
+            if showAgentsStrip { agentsStrip }
+        }
+    }
+
     // MARK: - Notch mode (panel expands downward out of the notch)
+
+    /// Pinned panels don't draw over the menu bar: the reserved
+    /// hardware-notch strip stays transparent and the whole panel hangs
+    /// below it. Content keeps the exact same position either way — only
+    /// the black strip over the menu bar is gone.
+    private var pinnedPanelInset: CGFloat {
+        vm.isPinned ? vm.closedNotchSize.height : 0
+    }
 
     private var notchModePanel: some View {
         ZStack {
             if vm.state == .open {
                 // The top strip stays empty so it can slide *behind* the physical
                 // notch (which has no pixels to draw over); all content lives
-                // below the hardware cutout.
+                // below the hardware cutout. When pinned, the strip is excluded
+                // from the panel entirely (see pinnedPanelInset).
                 VStack(spacing: 0) {
                     Spacer()
-                        .frame(height: vm.closedNotchSize.height)
+                        .frame(height: vm.closedNotchSize.height - pinnedPanelInset)
                     openContent
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -115,12 +215,16 @@ struct NotchContentView: View {
                 )
             }
         }
-        .frame(width: currentSize.width, height: currentSize.height)
+        .frame(width: currentSize.width, height: currentSize.height - pinnedPanelInset)
         .background(Color.black)
         .clipShape(NotchShape(topCornerRadius: topRadius, bottomCornerRadius: bottomRadius))
+        .offset(y: pinnedPanelInset)
         .shadow(color: vm.state == .open ? .black.opacity(0.55) : .clear, radius: 10)
         .animation(vm.state == .open ? openAnimation : closeAnimation, value: vm.state)
         .animation(widthAnimation, value: vm.effectiveOpenWidth)
+        .animation(widthAnimation, value: vm.effectiveOpenHeight)
+        .animation(widthAnimation, value: vm.temporaryFeatureID)
+        .animation(widthAnimation, value: vm.isPinned)
         .contentShape(Rectangle())
         .onHover { hovering in
             vm.handleHover(hovering)
@@ -135,14 +239,17 @@ struct NotchContentView: View {
     /// Notch-mode strip X: glued to the closed notch's left edge — stays put
     /// while the panel expands around/under it (lands on the panel's
     /// always-empty top strip).
-    private var stripXOffset: CGFloat {
-        -(vm.closedNotchSize.width / 2 + stripWidth / 2 + 6)
+    /// Cluster X: glued to the closed notch's left edge — stays put while
+    /// the panel expands around/under it.
+    private var clusterXOffset: CGFloat {
+        -(vm.closedNotchSize.width / 2 + clusterWidth / 2 + 6)
     }
 
-    /// True while the open panel is showing the Agents detail (vs. workspaces).
-    /// Agents keep the downward notch drop; workspaces use the left-morphing pill.
-    private var showingAgentsDetail: Bool {
-        vm.state == .open && vm.requestedFeatureID == agentStore.id
+    /// True while the open panel is showing any downward detail — in
+    /// menuBarLeft mode every feature (workspaces grid, agents, notes)
+    /// drops out of the notch.
+    private var showingNotchDropDetail: Bool {
+        vm.state == .open
     }
 
     /// Cap on the Agents drop-down width. Also determines how far the window
@@ -159,10 +266,10 @@ struct NotchContentView: View {
         max(vm.exactClosedNotchWidth, NotchContentView.panelMaxWidth)
     }
 
-    /// Trailing padding keeping the notch/Agents-panel's center pinned at
+    /// Trailing padding keeping the notch/detail-panel's center pinned at
     /// screen-center as it widens (window trailing edge = center + notchSpan/2 + 8).
     private var notchTrailingPadding: CGFloat {
-        (notchSpan - agentsPanelWidth) / 2 + 8
+        (notchSpan - detailPanelWidth) / 2 + 8
     }
 
     /// Trailing padding gluing the left cluster's (agent strip's) trailing edge
@@ -172,31 +279,36 @@ struct NotchContentView: View {
         notchSpan / 2 + vm.exactClosedNotchWidth / 2 + 8 + 6
     }
 
-    /// Agents drop-down width: hugs the measured content, capped; fake-notch
+    /// Detail drop-down width: the shared card width plus the panel's
+    /// horizontal padding — identical for every FeaturePanel card; fake-notch
     /// width when closed so it never jumps on first open.
-    private var agentsPanelWidth: CGFloat {
-        showingAgentsDetail
-            ? min((vm.openContentWidths[agentStore.id] ?? 220) + 24, NotchContentView.panelMaxWidth)
-            : vm.exactClosedNotchWidth
+    private var detailPanelWidth: CGFloat {
+        guard showingNotchDropDetail else { return vm.exactClosedNotchWidth }
+        let content = vm.openContentWidths[vm.activeFeatureID] ?? FeaturePanelMetrics.contentWidth
+        return min(content + 24, NotchContentView.panelMaxWidth)
     }
 
-    /// Agents drop-down height: grows downward only while hosting the detail.
-    private var agentsPanelHeight: CGFloat {
-        showingAgentsDetail ? vm.closedNotchSize.height + 44 : vm.closedNotchSize.height
+    /// Detail drop-down height: hugs the active feature's reported content
+    /// height (Notes defaults to the tall notepad); closed-notch height when
+    /// no detail is showing.
+    private var detailPanelHeight: CGFloat {
+        showingNotchDropDetail ? vm.effectiveOpenHeight : vm.closedNotchSize.height
     }
 
     private var menuBarModePanel: some View {
         ZStack {
-            // The (fake) notch. Stays a bare closed shape for workspaces (which
-            // live in the pill); only the Agents deep link drops it downward.
-            // Non-interactive while closed so the menu bar under it stays usable
-            // and workspace hover is owned solely by the pill.
+            // The (fake) notch. Every feature drops downward out of it —
+            // workspaces grid on plain hover (the default feature), agents /
+            // notes via their strips. Always hoverable so the notch opens
+            // exactly on hover (no auto-expand on workspace switches).
             ZStack(alignment: .top) {
-                if showingAgentsDetail {
+                if showingNotchDropDetail {
                     VStack(spacing: 0) {
                         // Keep the notch strip empty; content lives below it.
+                        // When pinned, the strip is excluded from the panel
+                        // entirely (see pinnedPanelInset).
                         Spacer()
-                            .frame(height: vm.closedNotchSize.height)
+                            .frame(height: vm.closedNotchSize.height - pinnedPanelInset)
                         openContent
                             .padding(.horizontal, 12)
                             .padding(.bottom, 6)
@@ -208,93 +320,61 @@ struct NotchContentView: View {
                     )
                 }
             }
-            .frame(width: agentsPanelWidth, height: agentsPanelHeight)
+            .frame(width: detailPanelWidth, height: detailPanelHeight - pinnedPanelInset)
             .background(Color.black)
             .clipShape(
                 NotchShape(
-                    topCornerRadius: showingAgentsDetail ? 19 : 6,
-                    bottomCornerRadius: showingAgentsDetail ? 24 : 14
+                    topCornerRadius: showingNotchDropDetail ? 19 : 6,
+                    bottomCornerRadius: showingNotchDropDetail ? 24 : 14
                 )
             )
-            .shadow(color: showingAgentsDetail ? .black.opacity(0.4) : .clear, radius: 10)
+            .offset(y: pinnedPanelInset)
+            .shadow(color: showingNotchDropDetail ? .black.opacity(0.4) : .clear, radius: 10)
             .contentShape(Rectangle())
-            .allowsHitTesting(showingAgentsDetail)
             .onHover { vm.handleHover($0) }
+            .onTapGesture {
+                vm.requestedFeatureID = nil
+                vm.handleTap()
+            }
             .padding(.trailing, notchTrailingPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
 
-            // Left cluster, glued to the notch's leading edge and growing left:
-            // the workspace pill (outboard) then the agent strip (inboard).
-            HStack(spacing: 6) {
-                workspacePill
-                if showAgentsStrip { agentsStrip }
-            }
-            .frame(height: vm.closedNotchSize.height)
-            .padding(.trailing, clusterTrailingPadding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            // Left cluster, glued to the notch's leading edge and growing
+            // left: workspaces capsule (outboard), notes, agents.
+            stripCluster
+                .frame(height: vm.closedNotchSize.height)
+                .padding(.trailing, clusterTrailingPadding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
         .animation(vm.state == .open ? openAnimation : closeAnimation, value: vm.state)
         .animation(widthAnimation, value: vm.requestedFeatureID)
+        .animation(widthAnimation, value: vm.temporaryFeatureID)
+        .animation(widthAnimation, value: vm.isPinned)
         .animation(widthAnimation, value: vm.openContentWidths)
-    }
-
-    /// The always-visible workspace pill. Resting: focused-workspace label.
-    /// Hover: morphs left into the full workspace row (hover is the *only*
-    /// trigger in this mode). Self-sizing, so the capsule hugs its content.
-    private var workspacePill: some View {
-        Group {
-            if let workspaces = registry.feature(withID: vm.defaultFeatureID) {
-                workspaces.makeContentView()
-            }
-        }
-        // Shared menu-bar pill height (kept in sync with AgentsStatusStrip) so
-        // the workspace pill and agents pill render at the same capsule height.
-        .frame(height: NotchContentView.menuBarPillContentHeight)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 4)
-        .background {
-            ZStack {
-                Capsule().fill(Color.black)
-                Capsule().strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5)
-            }
-        }
-        .contentShape(Capsule())
-        .onHover { hovering in
-            // Deep-link to workspaces so a prior Agents open never lingers.
-            if hovering {
-                vm.requestedFeatureID = nil
-            } else if vm.state == .closed {
-                vm.requestedFeatureID = nil
-            }
-            vm.handleHover(hovering)
-        }
-        .onTapGesture {
-            vm.requestedFeatureID = nil
-            vm.handleTap()
-        }
+        .animation(widthAnimation, value: vm.openContentHeights)
     }
 
     // MARK: - Shared content
 
-    /// One row, one feature — no tabs. Content is chosen by context:
-    /// workspace peeks show workspaces; opening via the agent strip deep-links
-    /// to Agents; otherwise the first registered feature shows.
+    /// One feature at a time — no tabs. Content is chosen by context:
+    /// workspace peeks show workspaces; opening via a strip deep-links to
+    /// that feature; a pinned screen always shows Notes.
     @ViewBuilder
     private var openContent: some View {
-        let active = registry.feature(withID: vm.requestedFeatureID ?? "") ?? registry.features.first
+        let active = registry.feature(withID: vm.activeFeatureID) ?? registry.features.first
         if let active {
             active.makeContentView()
         } else {
             Text("Nothing to show")
-                .font(.caption)
+                .font(.notch(size: 11))
                 .foregroundStyle(.gray)
         }
     }
 }
 
-/// Measured width of the agents strip, reported from the strip up to
+/// Measured width of the whole left-edge strip cluster, reported up to
 /// `NotchContentView` for notch-mode placement.
-private struct AgentsStripWidthKey: PreferenceKey {
+private struct StripClusterWidthKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

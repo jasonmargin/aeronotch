@@ -8,4 +8,7 @@ enum Notifications {
     /// Posted by `AeroNotch ping-agents`: external request to open the Agents
     /// detail popover (useful for hotkeys and testing).
     static let agentsRequested = Notification.Name("com.aeronotch.agents-requested")
+    /// Posted by `AeroNotch ping-notes`: external request to open the Notes
+    /// drop-down (useful for hotkeys and testing).
+    static let notesRequested = Notification.Name("com.aeronotch.notes-requested")
 }

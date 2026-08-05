@@ -40,6 +40,35 @@ final class SettingsStore: ObservableObject {
         onChange?(current)
     }
 
+    func setNotesEnabled(_ value: Bool) {
+        guard value != current.notesEnabled else { return }
+        current.notesEnabled = value
+        persist()
+        onChange?(current)
+    }
+
+    func setNotesShowClosedIndicator(_ value: Bool) {
+        guard value != current.notesShowClosedIndicator else { return }
+        current.notesShowClosedIndicator = value
+        persist()
+        onChange?(current)
+    }
+
+    func setPeekOnWorkspaceSwitch(_ value: Bool) {
+        guard value != current.peekOnWorkspaceSwitch else { return }
+        current.peekOnWorkspaceSwitch = value
+        persist()
+        onChange?(current)
+    }
+
+    /// Persist which screen has the Notes panel pinned (nil = none). Not a
+    /// full settings change — no window rebuild needed.
+    func setNotesPinnedDisplay(_ id: UInt32?) {
+        guard id != current.notesPinnedDisplayID else { return }
+        current.notesPinnedDisplayID = id
+        persist()
+    }
+
     private func persist() {
         let fileManager = FileManager.default
         try? fileManager.createDirectory(

@@ -39,6 +39,11 @@ private struct MenuBarMenu: View {
             Text("Menu Bar Strip").tag(AeroNotchConfig.PresentationMode.menuBarLeft)
         }
 
+        Toggle("Peek on Workspace Switch", isOn: Binding(
+            get: { appDelegate.peekOnWorkspaceSwitch },
+            set: { appDelegate.setPeekOnWorkspaceSwitch($0) }
+        ))
+
         Toggle("Agents", isOn: Binding(
             get: { appDelegate.agentsEnabled },
             set: { appDelegate.setAgentsEnabled($0) }
@@ -49,6 +54,22 @@ private struct MenuBarMenu: View {
             set: { appDelegate.setAgentsShowClosedIndicator($0) }
         ))
         .disabled(!appDelegate.agentsEnabled)
+
+        Toggle("Notes", isOn: Binding(
+            get: { appDelegate.notesEnabled },
+            set: { appDelegate.setNotesEnabled($0) }
+        ))
+
+        Toggle("Notes Indicator", isOn: Binding(
+            get: { appDelegate.notesShowClosedIndicator },
+            set: { appDelegate.setNotesShowClosedIndicator($0) }
+        ))
+        .disabled(!appDelegate.notesEnabled)
+
+        Button("Open Notes") {
+            appDelegate.openNotesDetail()
+        }
+        .disabled(!appDelegate.hasNotches || !appDelegate.notesEnabled)
 
         Toggle("Launch at Login", isOn: $launchAtLogin)
             .onChange(of: launchAtLogin) { _, newValue in
@@ -97,12 +118,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return AgentSessionStore(client: client, config: settings.current)
     }()
 
+    /// Notes notepad (app to-dos + quick note + Obsidian mirror). Always
+    /// injected; registration is gated on `notesEnabled` (live-toggleable).
+    private lazy var notesStore = NotesStore(config: settings.current)
+
     /// One window + view model per screen, keyed by CoreGraphics display id.
     private var windows: [CGDirectDisplayID: NotchWindow] = [:]
     private var viewModels: [CGDirectDisplayID: NotchViewModel] = [:]
 
     private var screenObserver: NSObjectProtocol?
     private var agentsObserver: NSObjectProtocol?
+    private var notesObserver: NSObjectProtocol?
 
     var hasNotches: Bool { !viewModels.isEmpty }
 
@@ -110,6 +136,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func setPresentationMode(_ mode: AeroNotchConfig.PresentationMode) {
         settings.setPresentationMode(mode)
+    }
+
+    var peekOnWorkspaceSwitch: Bool { settings.current.peekOnWorkspaceSwitch }
+
+    func setPeekOnWorkspaceSwitch(_ value: Bool) {
+        settings.setPeekOnWorkspaceSwitch(value)
     }
 
     var agentsEnabled: Bool { settings.current.agentsEnabled }
@@ -124,6 +156,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.setAgentsShowClosedIndicator(value)
     }
 
+    var notesEnabled: Bool { settings.current.notesEnabled }
+
+    func setNotesEnabled(_ value: Bool) {
+        settings.setNotesEnabled(value)
+    }
+
+    var notesShowClosedIndicator: Bool { settings.current.notesShowClosedIndicator }
+
+    func setNotesShowClosedIndicator(_ value: Bool) {
+        settings.setNotesShowClosedIndicator(value)
+    }
+
     var versionString: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     }
@@ -135,13 +179,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let store = WorkspaceStore(client: client, config: config)
         workspaceStore = store
 
-        // Workspace switch (hook ping or poll diff) → transient notch appearance.
+        // Workspace switch (hook ping or poll diff) → transient notch appearance,
+        // only when enabled. The active workspace always shows in the strip
+        // capsule; the notch itself opens on hover.
         store.onFocusedWorkspaceDidChange = { [weak self] in
-            self?.peekRelevantNotch()
+            guard let self, self.settings.current.peekOnWorkspaceSwitch else { return }
+            self.peekRelevantNotch()
         }
 
         registry.register(store)
         syncAgentsFeature(config)
+        syncNotesFeature(config)
 
         // Settings changed via the menu → update view models + rebuild windows live.
         settings.onChange = { [weak self] config in
@@ -149,6 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         rebuildWindows()
+        applyPinnedFromConfig()
 
         agentsObserver = DistributedNotificationCenter.default().addObserver(
             forName: Notifications.agentsRequested,
@@ -157,6 +206,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.openAgentsDetail()
+            }
+        }
+
+        notesObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notifications.notesRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.openNotesDetail()
             }
         }
 
@@ -188,11 +247,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         workspaceStore?.stop()
         agentStore.stop()
+        notesStore.stop()
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
         }
         if let agentsObserver {
             DistributedNotificationCenter.default().removeObserver(agentsObserver)
+        }
+        if let notesObserver {
+            DistributedNotificationCenter.default().removeObserver(notesObserver)
         }
     }
 
@@ -204,7 +267,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.updateConfig(config)
         }
         syncAgentsFeature(config)
+        syncNotesFeature(config)
         rebuildWindows()
+        applyPinnedFromConfig()
     }
 
     /// Live on/off for the Agents feature: start/stop polling and add/remove
@@ -216,6 +281,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             registry.unregister(withID: agentStore.id)
             agentStore.stop()
+        }
+    }
+
+    /// Live on/off for the Notes feature: start/stop vault scanning and
+    /// add/remove the panel segment without a relaunch.
+    private func syncNotesFeature(_ config: AeroNotchConfig) {
+        if config.notesEnabled {
+            registry.register(notesStore)
+            notesStore.start()
+        } else {
+            registry.unregister(withID: notesStore.id)
+            notesStore.stop()
         }
     }
 
@@ -258,9 +335,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Menu action or external `ping-notes`: open the Notes drop-down on the
+    /// screen holding the cursor (fallback: all screens). Stays up while
+    /// hovered or while it has keyboard focus (typing).
+    func openNotesDetail() {
+        let targets: [NotchViewModel]
+        if let screen = NSScreen.screenWithMouse,
+           let id = screen.displayID,
+           let viewModel = viewModels[id] {
+            targets = [viewModel]
+        } else {
+            targets = Array(viewModels.values)
+        }
+        for viewModel in targets {
+            viewModel.requestedFeatureID = notesStore.id
+            viewModel.peek(duration: 30)
+        }
+    }
+
+    /// Re-apply the persisted pinned screen after window rebuilds (launch,
+    /// display changes, config reloads).
+    private func applyPinnedFromConfig() {
+        for (id, viewModel) in viewModels {
+            viewModel.setPinned(config.notesPinnedDisplayID == id, notify: false)
+        }
+    }
+
     // MARK: - Window management (one notch per screen)
 
     private func rebuildWindows() {
+        guard let workspaceStore else { return }
         let screens = NSScreen.screens
         let currentIDs = Set(screens.compactMap(\.displayID))
 
@@ -280,16 +384,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // transparent and hit-tests to nil (click-through).
             let windowSize: CGSize
             let windowX: CGFloat
+            let windowHeight = max(config.openHeight, config.notesMaxHeight) + 40
             if config.presentationMode == .menuBarLeft {
                 let exact = NotchMetrics.closedNotchSize(for: screen, overhang: 0)
                 let notchSpan = max(exact.width, NotchContentView.panelMaxWidth)
                 windowSize = CGSize(
                     width: screen.frame.width / 2 + notchSpan / 2 + 8,
-                    height: config.openHeight + 40
+                    height: windowHeight
                 )
                 windowX = screen.frame.minX
             } else {
-                windowSize = CGSize(width: config.maxOpenWidth, height: config.openHeight + 40)
+                windowSize = CGSize(width: config.maxOpenWidth, height: windowHeight)
                 windowX = screen.frame.midX - windowSize.width / 2
             }
 
@@ -298,6 +403,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 viewModel = existing
             } else {
                 viewModel = NotchViewModel(config: config, screen: screen)
+                viewModel.onPinChanged = { [weak self] pinned in
+                    self?.settings.setNotesPinnedDisplay(pinned ? id : nil)
+                }
                 viewModels[id] = viewModel
             }
             viewModel.refreshClosedNotchSize(for: screen)
@@ -314,16 +422,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
                 windows[id] = window
             }
+            viewModel.window = window
 
             // Rebuild the hosting view so the per-screen environment stays correct.
             window.contentView = NSHostingView(
                 rootView: NotchContentView()
                     .environmentObject(viewModel)
                     .environmentObject(registry)
+                    .environmentObject(workspaceStore)
                     .environmentObject(agentStore)
+                    .environmentObject(notesStore)
                     .environment(
                         \.aerospaceMonitorID,
-                        workspaceStore?.aerospaceMonitorID(forAppKitScreenIndex: screen.appKitScreenIndex)
+                        workspaceStore.aerospaceMonitorID(forAppKitScreenIndex: screen.appKitScreenIndex)
                     )
             )
             window.setFrame(
