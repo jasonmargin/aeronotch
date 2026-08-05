@@ -14,7 +14,7 @@ struct AgentGlyph: View {
                 .frame(width: size, height: size)
         default:
             Text(AgentStyle.glyph(for: agent))
-                .font(.system(size: size, weight: .bold, design: .rounded))
+                .font(.notch(size: size, weight: .bold))
         }
     }
 }
