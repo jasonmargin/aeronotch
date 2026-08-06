@@ -357,7 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// display changes, config reloads).
     private func applyPinnedFromConfig() {
         for (id, viewModel) in viewModels {
-            viewModel.setPinned(config.notesPinnedDisplayID == id, notify: false)
+            viewModel.setPinned(config.pinnedDisplayID == id ? config.pinnedFeatureID : nil, notify: false)
         }
     }
 
@@ -403,8 +403,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 viewModel = existing
             } else {
                 viewModel = NotchViewModel(config: config, screen: screen)
-                viewModel.onPinChanged = { [weak self] pinned in
-                    self?.settings.setNotesPinnedDisplay(pinned ? id : nil)
+                viewModel.onPinChanged = { [weak self] featureID in
+                    self?.settings.setPinned(displayID: featureID == nil ? nil : id, featureID: featureID)
                 }
                 viewModels[id] = viewModel
             }

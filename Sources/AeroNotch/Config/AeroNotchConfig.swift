@@ -59,8 +59,12 @@ struct AeroNotchConfig: Codable, Sendable {
     var notesMaxHeight: CGFloat = 460
     /// Rescan cadence for Obsidian vaults.
     var notesScanIntervalSeconds: TimeInterval = 60
-    /// Screen (CoreGraphics display id) where the Notes panel is pinned open.
-    var notesPinnedDisplayID: UInt32? = nil
+    /// Show the desktop completion-heatmap widget.
+    var completionWidgetEnabled: Bool = false
+    /// Screen (CoreGraphics display id) where a feature card is pinned open.
+    var pinnedDisplayID: UInt32? = nil
+    /// Feature pinned on that screen ("workspaces" | "agents" | "notes").
+    var pinnedFeatureID: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case presentationMode
@@ -69,12 +73,15 @@ struct AeroNotchConfig: Codable, Sendable {
         case maxOpenWidth, openHeight, hiddenWorkspaces, aerospacePath
         case agentsEnabled, agentsPollIntervalSeconds, agentsShowClosedIndicator, herdrPath
         case notesEnabled, notesShowClosedIndicator, notesVaultPaths
-        case notesMaxHeight, notesScanIntervalSeconds, notesPinnedDisplayID
+        case notesMaxHeight, notesScanIntervalSeconds, completionWidgetEnabled
+        case pinnedDisplayID, pinnedFeatureID
     }
 
     /// `openWidth` was the fixed expanded width in <=0.1; now treated as the cap.
+    /// `notesPinnedDisplayID` pinned Notes only; now feature-generalized.
     private enum LegacyCodingKeys: String, CodingKey {
         case openWidth
+        case notesPinnedDisplayID
     }
 
     init() {}
@@ -106,7 +113,10 @@ struct AeroNotchConfig: Codable, Sendable {
         notesVaultPaths = try c.decodeIfPresent([String].self, forKey: .notesVaultPaths)
         notesMaxHeight = try c.decodeIfPresent(CGFloat.self, forKey: .notesMaxHeight) ?? defaults.notesMaxHeight
         notesScanIntervalSeconds = try c.decodeIfPresent(TimeInterval.self, forKey: .notesScanIntervalSeconds) ?? defaults.notesScanIntervalSeconds
-        notesPinnedDisplayID = try c.decodeIfPresent(UInt32.self, forKey: .notesPinnedDisplayID)
+        completionWidgetEnabled = try c.decodeIfPresent(Bool.self, forKey: .completionWidgetEnabled) ?? defaults.completionWidgetEnabled
+        let legacyPinned = try legacy.decodeIfPresent(UInt32.self, forKey: .notesPinnedDisplayID)
+        pinnedDisplayID = try c.decodeIfPresent(UInt32.self, forKey: .pinnedDisplayID) ?? legacyPinned
+        pinnedFeatureID = try c.decodeIfPresent(String.self, forKey: .pinnedFeatureID) ?? (legacyPinned != nil ? "notes" : nil)
     }
 
     static var configDirectory: URL {

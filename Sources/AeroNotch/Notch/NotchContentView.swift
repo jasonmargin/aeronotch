@@ -29,7 +29,7 @@ struct NotchContentView: View {
     private var showNotesStrip: Bool {
         vm.config.notesEnabled
             && vm.config.notesShowClosedIndicator
-            && !vm.isPinned
+            && vm.pinnedFeatureID != notesStore.id
     }
 
     /// Persistent workspaces capsule (active workspace on this screen) —

@@ -11,4 +11,10 @@ enum Notifications {
     /// Posted by `AeroNotch ping-notes`: external request to open the Notes
     /// drop-down (useful for hotkeys and testing).
     static let notesRequested = Notification.Name("com.aeronotch.notes-requested")
+    /// Posted by `AeroNotch ping-workspaces`: external request to open the
+    /// Workspaces grid (useful for hotkeys and testing).
+    static let workspacesRequested = Notification.Name("com.aeronotch.workspaces-requested")
+    /// Posted by `AeroNotch ping-new-todo`: focus the add-a-to-do field in
+    /// the Notes drop-down (opens it first when closed).
+    static let newTodoRequested = Notification.Name("com.aeronotch.new-todo-requested")
 }

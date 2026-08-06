@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 import SwiftUI
+import OSLog
+
+private let logger = Logger(subsystem: "aeronotch", category: "workspaces")
 
 /// Keeps AeroSpace workspace state fresh and notifies the notch when the
 /// focused workspace changes. Two signal paths:
@@ -110,6 +113,37 @@ final class WorkspaceStore: ObservableObject {
         }
     }
 
+    // MARK: - Vim-nav selection
+
+    /// Index into the displayed workspace list (grid, row-major).
+    @Published var selectionIndex = 0
+
+    /// The list the grid renders (and the keyboard navigates).
+    var navigableWorkspaces: [String] {
+        visibleWorkspaces(
+            showEmpty: config.showEmptyWorkspaces,
+            hidden: config.hiddenWorkspaces,
+            alsoVisible: snapshot.focused
+        )
+    }
+
+    func moveSelection(by delta: Int) {
+        let count = navigableWorkspaces.count
+        guard count > 0 else { return }
+        selectionIndex = max(0, min(count - 1, selectionIndex + delta))
+    }
+
+    func resetSelection() {
+        selectionIndex = 0
+    }
+
+    /// Enter: switch to the selected workspace.
+    func activateSelection() {
+        let list = navigableWorkspaces
+        guard list.indices.contains(selectionIndex) else { return }
+        switchToWorkspace(list[selectionIndex])
+    }
+
     // MARK: - Refresh pipeline (serialized + coalesced on the main actor)
 
     private func requestRefresh(forcePeek: Bool = false) {
@@ -138,6 +172,7 @@ final class WorkspaceStore: ObservableObject {
             snapshot = new
             consecutiveFailures = 0
             if !isAvailable { isAvailable = true }
+            logger.info("snapshot: \(new.workspaces.count) workspaces, apps on \(new.appsByWorkspace.count): \(new.appsByWorkspace.keys.sorted().joined(separator: ","), privacy: .public), focused=\(new.focused ?? "nil", privacy: .public)")
 
             AppIconProvider.shared.preload(apps: new.appsByWorkspace.values.flatMap { $0 })
 

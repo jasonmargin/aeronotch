@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The Notes drop-down: a quick-note scratch pad plus one combined to-do
-/// list — app-created items first, then every `- [ ]` task discovered in the
-/// user's Obsidian vaults (toggling those writes back to the markdown file).
+/// The Notes drop-down: one combined to-do list — app-created items first,
+/// then every `- [ ]` task discovered in the user's Obsidian vaults
+/// (toggling those writes back to the markdown file), plus the completion
+/// momentum heatmap.
 ///
 /// Unlike the single-row Workspaces/Agents features this is a full panel: it
 /// fills the taller notes height (see `AeroNotchConfig.notesMaxHeight`) and
@@ -23,14 +24,26 @@ struct NotesFeatureView: View {
             trailing: AnyView(headerButtons)
         ) {
             VStack(alignment: .leading, spacing: 10) {
-                quickNote
                 addRow
+                momentum
                 todoList
             }
         }
         .onAppear { store.refresh() }
+        .onChange(of: store.addTodoFocusRequests) { _, _ in
+            vm.window?.makeKey()
+            addFieldFocused = true
+        }
+        .onChange(of: addFieldFocused) { _, focused in
+            store.isAddFieldFocused = focused
+        }
+        .onChange(of: store.addFieldBlurRequests) { _, _ in
+            addFieldFocused = false
+        }
         .onExitCommand {
-            if vm.isPinned {
+            if addFieldFocused {
+                addFieldFocused = false
+            } else if vm.isPinned {
                 NSApp.keyWindow?.makeFirstResponder(nil)
             } else {
                 vm.forceClose()
@@ -41,49 +54,12 @@ struct NotesFeatureView: View {
     // MARK: - Header buttons
 
     private var headerButtons: some View {
-        HStack(spacing: 2) {
-            Button(action: { store.refresh() }) {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 10, weight: .medium))
-            }
-            .buttonStyle(HeaderButtonStyle())
-            .help("Rescan Obsidian vaults")
-            Button(action: { vm.togglePinned() }) {
-                Image(systemName: vm.isPinned ? "pin.fill" : "pin")
-                    .font(.system(size: 10, weight: .medium))
-                    .rotationEffect(.degrees(vm.isPinned ? 0 : 45))
-            }
-            .buttonStyle(HeaderButtonStyle(active: vm.isPinned))
-            .help(vm.isPinned ? "Unpin — resume auto-hiding" : "Pin open on this screen")
+        Button(action: { store.refresh() }) {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 10, weight: .medium))
         }
-    }
-
-    // MARK: - Quick note
-
-    private var quickNote: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $store.quickNote)
-                .font(.notch(size: 12))
-                .scrollContentBackground(.hidden)
-                .padding(6)
-            if store.quickNote.isEmpty {
-                Text("Quick note…")
-                    .font(.notch(size: 12))
-                    .foregroundStyle(.white.opacity(0.3))
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 13)
-                    .allowsHitTesting(false)
-            }
-        }
-        .frame(height: 58)
-        .background {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.white.opacity(0.06))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5)
-        }
+        .buttonStyle(HeaderButtonStyle())
+        .help("Rescan Obsidian vaults")
     }
 
     // MARK: - Add row
@@ -111,59 +87,89 @@ struct NotesFeatureView: View {
         }
     }
 
-    // MARK: - To-do list
+    // MARK: - Momentum heatmap
 
-    private var sortedAppTodos: [AppTodo] {
-        store.appTodos.sorted { lhs, rhs in
-            lhs.isDone != rhs.isDone ? !lhs.isDone : lhs.createdAt < rhs.createdAt
+    private var momentum: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Momentum")
+                .font(.notch(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.35))
+                .textCase(.uppercase)
+            CompletionHeatmapView(tasksByDay: store.completedTasksByDay, weeks: 12)
         }
     }
 
-    private var obsidianByVault: [(vault: String, todos: [ObsidianTodo])] {
-        Dictionary(grouping: store.obsidianTodos, by: \.vaultName)
-            .map { (vault: $0.key, todos: $0.value.sorted { lhs, rhs in
-                lhs.isDone != rhs.isDone
-                    ? !lhs.isDone
-                    : (lhs.relativePath != rhs.relativePath
-                        ? lhs.relativePath < rhs.relativePath
-                        : lhs.lineNumber < rhs.lineNumber)
-            }) }
-            .sorted { $0.vault < $1.vault }
-    }
+    // MARK: - To-do list
 
+    /// Renders the store's selectable list directly so the vim selection
+    /// index always matches what's on screen. Vault headers are injected
+    /// whenever the Obsidian item's vault changes (they aren't selectable).
     private var todoList: some View {
-        ScrollView(showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 2) {
-                if store.appTodos.isEmpty && store.obsidianTodos.isEmpty {
-                    Text("No to-dos yet")
-                        .font(.notch(size: 11))
-                        .foregroundStyle(.white.opacity(0.35))
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.top, 12)
-                }
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    if store.appTodos.isEmpty && store.obsidianTodos.isEmpty {
+                        Text("No to-dos yet")
+                            .font(.notch(size: 11))
+                            .foregroundStyle(.white.opacity(0.35))
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, 12)
+                    }
 
-                ForEach(sortedAppTodos) { todo in
-                    AppTodoRow(
-                        todo: todo,
-                        onToggle: { store.toggle(todo) },
-                        onDelete: { store.delete(todo) }
-                    )
-                }
+                    let items = store.selectableTodos
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        switch item {
+                        case .app(let todo):
+                            AppTodoRow(
+                                todo: todo,
+                                isSelected: index == store.selectionIndex,
+                                onToggle: { store.toggle(todo) },
+                                onDelete: { store.delete(todo) }
+                            )
+                        case .obsidian(let todo):
+                            if index == 0 || todo.vaultName != items[index - 1].vaultName {
+                                Text(todo.vaultName)
+                                    .font(.notch(size: 10, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.35))
+                                    .textCase(.uppercase)
+                                    .padding(.top, 8)
+                                    .padding(.bottom, 2)
+                            }
+                            ObsidianTodoRow(
+                                todo: todo,
+                                isSelected: index == store.selectionIndex,
+                                onToggle: { store.toggleObsidian(todo) }
+                            )
+                        }
+                    }
 
-                ForEach(obsidianByVault, id: \.vault) { group in
-                    Text(group.vault)
-                        .font(.notch(size: 10, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.35))
-                        .textCase(.uppercase)
-                        .padding(.top, 8)
-                        .padding(.bottom, 2)
-                    ForEach(group.todos) { todo in
-                        ObsidianTodoRow(todo: todo, onToggle: { store.toggleObsidian(todo) })
+                    if store.hasHiddenCompleted {
+                        Button(action: { store.loadMoreCompleted() }) {
+                            Text("Load completed from past \(store.completedWindowDays + 7) days")
+                                .font(.notch(size: 10, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.4))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                                .background {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.white.opacity(0.05))
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 4)
                     }
                 }
             }
+            .frame(maxHeight: .infinity)
+            // Vim navigation: keep the selection in view while moving.
+            .onChange(of: store.selectionIndex) { _, index in
+                let items = store.selectableTodos
+                guard items.indices.contains(index) else { return }
+                withAnimation(.snappy(duration: 0.15)) {
+                    proxy.scrollTo(items[index].id, anchor: .center)
+                }
+            }
         }
-        .frame(maxHeight: .infinity)
     }
 }
 
@@ -182,6 +188,7 @@ private struct Checkbox: View {
 
 private struct AppTodoRow: View {
     let todo: AppTodo
+    let isSelected: Bool
     let onToggle: () -> Void
     let onDelete: () -> Void
 
@@ -199,6 +206,11 @@ private struct AppTodoRow: View {
                 .foregroundStyle(.white.opacity(todo.isDone ? 0.35 : 0.85))
                 .lineLimit(2)
             Spacer(minLength: 4)
+            if todo.isDone, let completedAt = todo.completedAt {
+                Text(completedAt, format: .dateTime.month(.abbreviated).day())
+                    .font(.notch(size: 9))
+                    .foregroundStyle(.white.opacity(0.3))
+            }
             if isHovering {
                 Button(action: onDelete) {
                     Image(systemName: "xmark")
@@ -213,7 +225,13 @@ private struct AppTodoRow: View {
         .padding(.vertical, 4)
         .background {
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.white.opacity(isHovering ? 0.05 : 0))
+                .fill(Color.white.opacity(isSelected ? 0.1 : (isHovering ? 0.05 : 0)))
+        }
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.white.opacity(0.45), lineWidth: 0.5)
+            }
         }
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
@@ -223,9 +241,18 @@ private struct AppTodoRow: View {
 
 private struct ObsidianTodoRow: View {
     let todo: ObsidianTodo
+    let isSelected: Bool
     let onToggle: () -> Void
 
     @State private var isHovering = false
+
+    private var caption: String {
+        var caption = todo.relativePath
+        if todo.isDone, let completedOn = todo.completedOn {
+            caption += " · ✅ \(completedOn)"
+        }
+        return caption
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -239,7 +266,7 @@ private struct ObsidianTodoRow: View {
                     .strikethrough(todo.isDone)
                     .foregroundStyle(.white.opacity(todo.isDone ? 0.35 : 0.85))
                     .lineLimit(2)
-                Text(todo.relativePath)
+                Text(caption)
                     .font(.notch(size: 9))
                     .foregroundStyle(.white.opacity(0.3))
                     .lineLimit(1)
@@ -251,25 +278,17 @@ private struct ObsidianTodoRow: View {
         .padding(.vertical, 4)
         .background {
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.white.opacity(isHovering ? 0.05 : 0))
+                .fill(Color.white.opacity(isSelected ? 0.1 : (isHovering ? 0.05 : 0)))
+        }
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.white.opacity(0.45), lineWidth: 0.5)
+            }
         }
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .onTapGesture(perform: onToggle)
         .help("\(todo.relativePath):\(todo.lineNumber)")
-    }
-}
-
-private struct HeaderButtonStyle: ButtonStyle {
-    var active: Bool = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(.white.opacity(active ? 0.95 : (configuration.isPressed ? 0.7 : 0.45)))
-            .padding(4)
-            .background {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.white.opacity(configuration.isPressed || active ? 0.12 : 0))
-            }
     }
 }

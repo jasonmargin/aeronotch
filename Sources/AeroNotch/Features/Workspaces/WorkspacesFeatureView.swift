@@ -23,12 +23,10 @@ struct WorkspacesFeatureView: View {
         return store.snapshot.focused
     }
 
+    /// The grid renders exactly the store's navigable list so the vim
+    /// selection index always matches what's on screen.
     private var workspaces: [String] {
-        store.visibleWorkspaces(
-            showEmpty: config.showEmptyWorkspaces,
-            hidden: config.hiddenWorkspaces,
-            alsoVisible: focusedWorkspace
-        )
+        store.navigableWorkspaces
     }
 
     var body: some View {
@@ -81,10 +79,11 @@ struct WorkspacesFeatureView: View {
             columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: Self.maxPerRow),
             spacing: 6
         ) {
-            ForEach(workspaces, id: \.self) { workspace in
+            ForEach(Array(workspaces.enumerated()), id: \.element) { index, workspace in
                 WorkspacePillView(
                     name: workspace,
                     isFocused: workspace == focusedWorkspace,
+                    isSelected: index == store.selectionIndex,
                     apps: store.snapshot.appsByWorkspace[workspace] ?? [],
                     showIcons: config.showAppIcons,
                     maxIcons: config.maxAppIconsPerWorkspace,
@@ -98,6 +97,7 @@ struct WorkspacesFeatureView: View {
 private struct WorkspacePillView: View {
     let name: String
     let isFocused: Bool
+    let isSelected: Bool
     let apps: [AeroAppInfo]
     let showIcons: Bool
     let maxIcons: Int
@@ -139,7 +139,9 @@ private struct WorkspacePillView: View {
             }
             .overlay {
                 Capsule().strokeBorder(
-                    isFocused ? Color.white.opacity(0.35) : Color.clear,
+                    isSelected ? Color.white.opacity(0.6)
+                        : isFocused ? Color.white.opacity(0.35)
+                        : Color.clear,
                     lineWidth: 1
                 )
             }

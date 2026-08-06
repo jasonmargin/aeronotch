@@ -23,6 +23,46 @@ struct ObsidianTodoScanner: Sendable {
         pattern: #"^(\s*(?:[-*+]|\d+\.)\s+)\[([ xX])\]\s+(.*\S)\s*$"#
     )
 
+    /// Completion date, Tasks-plugin convention: `✅ yyyy-MM-dd`.
+    private static let completionPattern = try! NSRegularExpression(
+        pattern: #"✅\s*(\d{4}-\d{2}-\d{2})"#
+    )
+
+    /// Today as `yyyy-MM-dd` (written back when a task is checked off).
+    static func todayString() -> String {
+        dateString(for: Date())
+    }
+
+    /// Any date as `yyyy-MM-dd` (lexicographically comparable).
+    static func dateString(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    /// Parse a `yyyy-MM-dd` completion date back into a Date.
+    static func date(from string: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: string)
+    }
+
+    /// Split a raw task text into its clean text and completion date.
+    private static func strippingCompletion(from text: String) -> (text: String, completedOn: String?) {
+        guard let match = completionPattern.firstMatch(
+            in: text,
+            range: NSRange(text.startIndex..., in: text)
+        ), let dateRange = Range(match.range(at: 1), in: text),
+           let fullRange = Range(match.range, in: text) else {
+            return (text, nil)
+        }
+        var stripped = text
+        let completedOn = String(stripped[dateRange])
+        stripped.removeSubrange(fullRange)
+        while stripped.last?.isWhitespace == true { stripped.removeLast() }
+        return (stripped, completedOn)
+    }
+
     // MARK: - Vault discovery
 
     func discoverVaults() -> [URL] {
@@ -100,11 +140,13 @@ struct ObsidianTodoScanner: Sendable {
                    let stateRange = Range(match.range(at: 2), in: line),
                    let textRange = Range(match.range(at: 3), in: line) else { continue }
 
+                let (text, completedOn) = Self.strippingCompletion(from: String(line[textRange]))
                 todos.append(ObsidianTodo(
                     filePath: fileURL.path,
                     lineNumber: index + 1,
-                    text: String(line[textRange]),
+                    text: text,
                     isDone: line[stateRange].lowercased() == "x",
+                    completedOn: completedOn,
                     vaultName: vaultName,
                     relativePath: String(relativePath)
                 ))
@@ -143,19 +185,34 @@ struct ObsidianTodoScanner: Sendable {
         try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
-    /// Rewrite the checkbox character of `line` when it is a task line whose
-    /// text matches `text`. Returns nil when the line doesn't match.
+    /// Rewrite the checkbox of `line` when it is a task line whose (clean)
+    /// text matches `text`. Checking off appends `✅ yyyy-MM-dd` (keeping an
+    /// existing date if present); unchecking removes the date. Returns nil
+    /// when the line doesn't match.
     private static func togglingCheckbox(in line: String, text: String, done: Bool) -> String? {
         guard let match = taskPattern.firstMatch(
             in: line,
             range: NSRange(line.startIndex..., in: line)
         ), match.numberOfRanges == 4,
            let stateRange = Range(match.range(at: 2), in: line),
-           let textRange = Range(match.range(at: 3), in: line),
-           line[textRange] == text else { return nil }
+           let textRange = Range(match.range(at: 3), in: line) else { return nil }
+
+        let (cleaned, _) = strippingCompletion(from: String(line[textRange]))
+        guard cleaned == text else { return nil }
 
         var updated = line
         updated.replaceSubrange(stateRange, with: done ? "x" : " ")
+        if done {
+            if completionPattern.firstMatch(in: updated, range: NSRange(updated.startIndex..., in: updated)) == nil {
+                updated += " ✅ \(todayString())"
+            }
+        } else if let completionMatch = completionPattern.firstMatch(
+            in: updated,
+            range: NSRange(updated.startIndex..., in: updated)
+        ), let range = Range(completionMatch.range, in: updated) {
+            updated.removeSubrange(range)
+            while updated.last?.isWhitespace == true { updated.removeLast() }
+        }
         return updated
     }
 }

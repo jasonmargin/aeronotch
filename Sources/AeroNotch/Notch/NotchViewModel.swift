@@ -19,17 +19,23 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var state: NotchState = .closed
     @Published private(set) var isHovering = false
 
-    /// Pinned open (Notes): the notch stays expanded on this screen until
-    /// unpinned — peeks, hover-exits, and config reloads never close it.
-    @Published private(set) var isPinned = false
+    /// Pinned open: the notch stays expanded on this screen showing the
+    /// pinned feature until unpinned — peeks, hover-exits, and config
+    /// reloads never close it. Any feature (Workspaces, Agents, Notes)
+    /// can be pinned from its card header.
+    @Published private(set) var pinnedFeatureID: String?
+
+    /// True while any feature is pinned on this screen.
+    var isPinned: Bool { pinnedFeatureID != nil }
 
     /// The window hosting this view model (set by AppDelegate) — used to
     /// allow keyboard focus while the Notes panel is up (text input needs a
     /// key window) and to resist closing while the user is typing.
     weak var window: NotchWindow?
 
-    /// Called after a pin toggle so AppDelegate can persist the pinned screen.
-    var onPinChanged: ((Bool) -> Void)?
+    /// Called after a pin toggle so AppDelegate can persist the pinned
+    /// screen + feature (nil = unpinned).
+    var onPinChanged: ((String?) -> Void)?
 
     @Published var closedNotchSize: CGSize
 
@@ -67,38 +73,47 @@ final class NotchViewModel: ObservableObject {
     }
 
     /// The feature whose content the open panel shows right now: a transient
-    /// hover overlay first (agents strip hovered while Notes is pinned),
-    /// then Notes while pinned, then the deep-linked feature.
+    /// hover overlay first (a strip hovered while another card is pinned),
+    /// then the pinned feature, then the deep-linked feature.
     var activeFeatureID: String {
-        temporaryFeatureID ?? (isPinned ? NotesStore.featureID : (requestedFeatureID ?? defaultFeatureID))
+        temporaryFeatureID ?? pinnedFeatureID ?? (requestedFeatureID ?? defaultFeatureID)
     }
 
-    /// Transient content override: while Notes is pinned, hovering the agents
-    /// strip shows the Agents list *over* the notes panel without disturbing
-    /// the pin. Cleared on hover-out.
+    /// Set when the panel was opened via a CLI ping (hotkey) — enables the
+    /// key window for vim-style navigation on non-Notes cards too (they have
+    /// no text input, so keystrokes are only taken on explicit hotkey opens,
+    /// never on hover).
+    var openedViaPing = false
+
+    /// Transient content override: while a card is pinned, hovering a strip
+    /// shows that feature *over* the pinned panel without disturbing the
+    /// pin. Cleared on hover-out.
     @Published var temporaryFeatureID: String?
 
-    /// True while the Notes panel is up — drives the taller open height and
-    /// the close-resistance (never collapse while the user is typing).
+    /// True while the Notes panel is up — drives keyboard focus and the
+    /// close-resistance (never collapse while the user is typing).
     var isShowingNotes: Bool {
         state == .open && activeFeatureID == NotesStore.featureID
     }
 
-    /// Open height for the active feature: a pinned screen holds the notepad
-    /// height even under a hover overlay (so the panel never jumps); a
-    /// reported content height — plus the reserved hardware-notch strip,
-    /// which is carved out of the panel's top — clamped between the
-    /// single-row default and the notepad cap; Notes defaults to the tall
-    /// notepad, others to the standard popover height.
+    /// Open height for the active feature: a pinned screen holds the pinned
+    /// card's height even under a hover overlay (so the panel never jumps);
+    /// otherwise the active feature's height. A reported content height —
+    /// plus the reserved hardware-notch strip, which is carved out of the
+    /// panel's top — is clamped between the single-row default and the
+    /// notepad cap; Notes defaults to the tall notepad.
     var effectiveOpenHeight: CGFloat {
-        if isPinned { return config.notesMaxHeight }
-        if let reported = openContentHeights[activeFeatureID] {
+        heightForFeature(pinnedFeatureID ?? activeFeatureID)
+    }
+
+    private func heightForFeature(_ featureID: String) -> CGFloat {
+        if let reported = openContentHeights[featureID] {
             return min(
                 max(reported + closedNotchSize.height, maxOpenSize.height),
                 config.notesMaxHeight
             )
         }
-        return activeFeatureID == NotesStore.featureID ? config.notesMaxHeight : maxOpenSize.height
+        return featureID == NotesStore.featureID ? config.notesMaxHeight : maxOpenSize.height
     }
 
     /// Presentation mode for the expanded popover.
@@ -174,6 +189,7 @@ final class NotchViewModel: ObservableObject {
         guard !isPinned else { return }
         cancelPeek()
         temporaryFeatureID = nil
+        openedViaPing = false
         state = .closed
         updateKeyboardFocus()
         stateLogger.info("forceClose()")
@@ -201,24 +217,26 @@ final class NotchViewModel: ObservableObject {
 
     // MARK: - Pinning
 
-    func togglePinned() {
-        setPinned(!isPinned)
+    /// Pin a feature's card open on this screen, or unpin when it's the
+    /// pinned one. Pinning a different feature moves the pin.
+    func togglePinned(_ featureID: String) {
+        setPinned(pinnedFeatureID == featureID ? nil : featureID)
     }
 
-    func setPinned(_ pinned: Bool, notify: Bool = true) {
-        guard pinned != isPinned else { return }
-        isPinned = pinned
+    func setPinned(_ featureID: String?, notify: Bool = true) {
+        guard featureID != pinnedFeatureID else { return }
+        pinnedFeatureID = featureID
         temporaryFeatureID = nil
-        if pinned {
-            requestedFeatureID = NotesStore.featureID
+        if let featureID {
+            requestedFeatureID = featureID
             open()
         } else if !isHovering {
             cancelPeek()
             state = .closed
             updateKeyboardFocus()
         }
-        if notify { onPinChanged?(pinned) }
-        stateLogger.info("pinned=\(pinned, privacy: .public)")
+        if notify { onPinChanged?(featureID) }
+        stateLogger.info("pinned=\(featureID ?? "nil", privacy: .public)")
     }
 
     // MARK: - Hover
@@ -259,11 +277,38 @@ final class NotchViewModel: ObservableObject {
 
     // MARK: - Private
 
-    /// Text input needs a key window: only allow it while the Notes panel is
-    /// up, so the rest of the time the notch stays fully click-through
-    /// keyboard-wise (it never steals focus from real apps).
+    /// Text input needs a key window: allowed while the Notes panel is up
+    /// (typing) or whenever the panel was hotkey-opened (vim navigation).
+    /// The rest of the time the notch never steals focus from real apps.
     private func updateKeyboardFocus() {
-        window?.allowsKeyboardFocus = isShowingNotes
+        let wantsFocus = isShowingNotes || (openedViaPing && state == .open)
+        window?.allowsKeyboardFocus = wantsFocus
+        if wantsFocus, resignKeyObserver == nil, let window {
+            resignKeyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.handleWindowResignKey()
+                }
+            }
+        }
+    }
+
+    private var resignKeyObserver: NSObjectProtocol?
+
+    /// A focused Notes panel resists the peek/hover close (typing must never
+    /// be destroyed), but once the user clicks into a real app the panel
+    /// resigns key — close it after a short grace period so it doesn't
+    /// linger forever.
+    private func handleWindowResignKey() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            guard !isPinned, !isHovering, state == .open, window?.isKeyWindow == false else { return }
+            forceClose()
+        }
     }
 
     private func cancelPeek() {

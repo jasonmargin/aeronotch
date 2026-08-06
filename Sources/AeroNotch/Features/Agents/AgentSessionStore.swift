@@ -64,6 +64,37 @@ final class AgentSessionStore: ObservableObject {
         }
     }
 
+    // MARK: - Vim-nav selection
+
+    /// Index into `sortedSessions` (the list the card renders).
+    @Published var selectionIndex = 0
+
+    /// Display order shared by the card and the keyboard: worst status first.
+    var sortedSessions: [AgentSession] {
+        sessions.sorted { lhs, rhs in
+            lhs.status.severity != rhs.status.severity
+                ? lhs.status.severity > rhs.status.severity
+                : (lhs.agent != rhs.agent ? lhs.agent < rhs.agent : lhs.shortCWD < rhs.shortCWD)
+        }
+    }
+
+    func moveSelection(by delta: Int) {
+        let count = sortedSessions.count
+        guard count > 0 else { return }
+        selectionIndex = max(0, min(count - 1, selectionIndex + delta))
+    }
+
+    func resetSelection() {
+        selectionIndex = 0
+    }
+
+    /// Enter: focus the herdr pane of the selected session.
+    func activateSelection() {
+        let list = sortedSessions
+        guard list.indices.contains(selectionIndex) else { return }
+        focus(list[selectionIndex])
+    }
+
     // MARK: - Refresh pipeline (serialized on the main actor)
 
     private func requestRefresh() {
@@ -82,6 +113,7 @@ final class AgentSessionStore: ObservableObject {
             if new != sessions {
                 logger.info("\(new.count, privacy: .public) session(s): \(new.map { "\($0.agent)=\($0.status.rawValue)" }.joined(separator: ", "), privacy: .public)")
                 sessions = new
+                selectionIndex = min(selectionIndex, max(0, new.count - 1))
             }
             consecutiveFailures = 0
             if !isAvailable { isAvailable = true }

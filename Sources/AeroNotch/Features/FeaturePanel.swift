@@ -27,6 +27,8 @@ struct FeaturePanel<Content: View>: View {
     let trailing: AnyView
     @ViewBuilder var content: Content
 
+    @EnvironmentObject private var vm: NotchViewModel
+
     init(
         featureID: String,
         title: String,
@@ -53,6 +55,13 @@ struct FeaturePanel<Content: View>: View {
                 }
                 Spacer()
                 trailing
+                Button(action: { vm.togglePinned(featureID) }) {
+                    Image(systemName: vm.pinnedFeatureID == featureID ? "pin.fill" : "pin")
+                        .font(.system(size: 10, weight: .medium))
+                        .rotationEffect(.degrees(vm.pinnedFeatureID == featureID ? 0 : 45))
+                }
+                .buttonStyle(HeaderButtonStyle(active: vm.pinnedFeatureID == featureID))
+                .help(vm.pinnedFeatureID == featureID ? "Unpin — resume auto-hiding" : "Pin open on this screen")
             }
             .foregroundStyle(.white.opacity(0.85))
             content
@@ -62,5 +71,20 @@ struct FeaturePanel<Content: View>: View {
         .padding(.bottom, 12)
         .frame(width: FeaturePanelMetrics.contentWidth)
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+}
+
+/// Shared style for small header buttons (pin, refresh) on drop-down cards.
+struct HeaderButtonStyle: ButtonStyle {
+    var active: Bool = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white.opacity(active ? 0.95 : (configuration.isPressed ? 0.7 : 0.45)))
+            .padding(4)
+            .background {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.white.opacity(configuration.isPressed || active ? 0.12 : 0))
+            }
     }
 }

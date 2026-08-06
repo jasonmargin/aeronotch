@@ -14,11 +14,7 @@ struct AgentsFeatureView: View {
     @EnvironmentObject private var vm: NotchViewModel
 
     private var sortedSessions: [AgentSession] {
-        store.sessions.sorted { lhs, rhs in
-            lhs.status.severity != rhs.status.severity
-                ? lhs.status.severity > rhs.status.severity
-                : (lhs.agent != rhs.agent ? lhs.agent < rhs.agent : lhs.shortCWD < rhs.shortCWD)
-        }
+        store.sortedSessions
     }
 
     var body: some View {
@@ -79,8 +75,12 @@ struct AgentsFeatureView: View {
 
     private var rows: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(sortedSessions) { session in
-                SessionRow(session: session, action: { store.focus(session) })
+            ForEach(Array(sortedSessions.enumerated()), id: \.element.id) { index, session in
+                SessionRow(
+                    session: session,
+                    isSelected: index == store.selectionIndex,
+                    action: { store.focus(session) }
+                )
             }
         }
     }
@@ -90,6 +90,7 @@ struct AgentsFeatureView: View {
 
 private struct SessionRow: View {
     let session: AgentSession
+    let isSelected: Bool
     let action: () -> Void
 
     @State private var isHovering = false
@@ -118,12 +119,12 @@ private struct SessionRow: View {
         .padding(.vertical, 4)
         .background {
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.white.opacity(isHovering ? 0.08 : 0))
+                .fill(Color.white.opacity(isSelected ? 0.1 : (isHovering ? 0.08 : 0)))
         }
         .overlay {
-            if session.focused {
+            if isSelected || session.focused {
                 RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5)
+                    .strokeBorder(Color.white.opacity(isSelected ? 0.45 : 0.2), lineWidth: 0.5)
             }
         }
         .contentShape(Rectangle())
