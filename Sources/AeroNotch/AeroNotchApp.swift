@@ -18,14 +18,25 @@ struct AeroNotchApp: App {
         MenuBarExtra("AeroNotch", systemImage: "rectangle.3.group") {
             MenuBarMenu(appDelegate: appDelegate)
         }
+        Settings {
+            SettingsWindowView(appDelegate: appDelegate)
+        }
     }
 }
 
 private struct MenuBarMenu: View {
     let appDelegate: AppDelegate
+    @Environment(\.openSettings) private var openSettings
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
+        Button("Settings…") {
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
+        }
+        .keyboardShortcut(",")
+
+        Divider()
         Button("Peek Workspaces") {
             appDelegate.peekAll(duration: 3)
         }
@@ -63,6 +74,12 @@ private struct MenuBarMenu: View {
         Toggle("Notes Indicator", isOn: Binding(
             get: { appDelegate.notesShowClosedIndicator },
             set: { appDelegate.setNotesShowClosedIndicator($0) }
+        ))
+        .disabled(!appDelegate.notesEnabled)
+
+        Toggle("Completion Widget", isOn: Binding(
+            get: { appDelegate.completionWidgetEnabled },
+            set: { appDelegate.setCompletionWidgetEnabled($0) }
         ))
         .disabled(!appDelegate.notesEnabled)
 
@@ -104,7 +121,7 @@ private struct MenuBarMenu: View {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let settings = SettingsStore(config: AeroNotchConfig.load())
+    let settings = SettingsStore(config: AeroNotchConfig.load())
     private let registry = NotchFeatureRegistry()
 
     private var config: AeroNotchConfig { settings.current }
@@ -122,6 +139,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// injected; registration is gated on `notesEnabled` (live-toggleable).
     private lazy var notesStore = NotesStore(config: settings.current)
 
+    /// Read access for the settings window's Completed tab.
+    var notes: NotesStore { notesStore }
+
+    /// Desktop completion-heatmap widget (level: desktop, draggable).
+    private let widgetController = CompletionWidgetController()
+
     /// One window + view model per screen, keyed by CoreGraphics display id.
     private var windows: [CGDirectDisplayID: NotchWindow] = [:]
     private var viewModels: [CGDirectDisplayID: NotchViewModel] = [:]
@@ -129,6 +152,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenObserver: NSObjectProtocol?
     private var agentsObserver: NSObjectProtocol?
     private var notesObserver: NSObjectProtocol?
+    private var workspacesObserver: NSObjectProtocol?
+    private var newTodoObserver: NSObjectProtocol?
+
+    /// Local key-down monitor driving vim-style navigation (hjkl, Enter,
+    /// `i`, `d`, Esc) whenever a notch panel is the key window.
+    private var keyMonitor: Any?
 
     var hasNotches: Bool { !viewModels.isEmpty }
 
@@ -168,6 +197,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.setNotesShowClosedIndicator(value)
     }
 
+    var completionWidgetEnabled: Bool { settings.current.completionWidgetEnabled }
+
+    func setCompletionWidgetEnabled(_ value: Bool) {
+        settings.setCompletionWidgetEnabled(value)
+    }
+
     var versionString: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     }
@@ -190,6 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registry.register(store)
         syncAgentsFeature(config)
         syncNotesFeature(config)
+        syncWidget(config)
 
         // Settings changed via the menu → update view models + rebuild windows live.
         settings.onChange = { [weak self] config in
@@ -219,6 +255,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        workspacesObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notifications.workspacesRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.openWorkspacesDetail()
+            }
+        }
+
+        newTodoObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notifications.newTodoRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.focusNewTodo()
+            }
+        }
+
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -230,6 +286,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         store.start()
+
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.handleVimKey(event) else { return event }
+            return nil
+        }
 
         // One-time hello on every screen: prove the app is alive,
         // and teach where the notches live.
@@ -257,6 +318,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let notesObserver {
             DistributedNotificationCenter.default().removeObserver(notesObserver)
         }
+        if let workspacesObserver {
+            DistributedNotificationCenter.default().removeObserver(workspacesObserver)
+        }
+        if let newTodoObserver {
+            DistributedNotificationCenter.default().removeObserver(newTodoObserver)
+        }
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+        }
     }
 
     // MARK: - Settings
@@ -268,8 +338,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         syncAgentsFeature(config)
         syncNotesFeature(config)
+        syncWidget(config)
         rebuildWindows()
         applyPinnedFromConfig()
+    }
+
+    /// Live on/off for the desktop completion widget.
+    private func syncWidget(_ config: AeroNotchConfig) {
+        if config.completionWidgetEnabled && config.notesEnabled {
+            widgetController.show(store: notesStore)
+        } else {
+            widgetController.hide()
+        }
     }
 
     /// Live on/off for the Agents feature: start/stop polling and add/remove
@@ -318,27 +398,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// External `ping-agents`: transiently open the Agents detail popover on
-    /// the screen holding the cursor (fallback: all screens).
+    /// External `ping-agents`: toggle the Agents list on the screen holding
+    /// the cursor (fallback: all screens) — opens it, or closes it when it's
+    /// already showing Agents. Pinned cards always win (never closed here).
     private func openAgentsDetail() {
-        let targets: [NotchViewModel]
-        if let screen = NSScreen.screenWithMouse,
-           let id = screen.displayID,
-           let viewModel = viewModels[id] {
-            targets = [viewModel]
-        } else {
-            targets = Array(viewModels.values)
-        }
-        for viewModel in targets {
-            viewModel.requestedFeatureID = agentStore.id
-            viewModel.peek(duration: 6)
-        }
+        toggleDetail(featureID: agentStore.id, peekDuration: 6)
     }
 
-    /// Menu action or external `ping-notes`: open the Notes drop-down on the
-    /// screen holding the cursor (fallback: all screens). Stays up while
+    /// Menu action or external `ping-notes`: toggle the Notes drop-down on
+    /// the screen holding the cursor (fallback: all screens). Stays up while
     /// hovered or while it has keyboard focus (typing).
     func openNotesDetail() {
+        toggleDetail(featureID: notesStore.id, peekDuration: 30)
+    }
+
+    /// External `ping-workspaces`: toggle the Workspaces grid on the screen
+    /// holding the cursor (fallback: all screens).
+    private func openWorkspacesDetail() {
+        toggleDetail(featureID: workspaceStore?.id ?? "workspaces", peekDuration: 8)
+    }
+
+    /// External `ping-new-todo`: focus the add-a-to-do field in the Notes
+    /// drop-down. Notes already showing → focus in place; otherwise open it
+    /// (opening auto-focuses the field).
+    private func focusNewTodo() {
+        let target: NotchViewModel?
+        if let screen = NSScreen.screenWithMouse,
+           let id = screen.displayID {
+            target = viewModels[id]
+        } else {
+            target = viewModels.values.first
+        }
+        if let target, target.state == .open, target.activeFeatureID == notesStore.id {
+            notesStore.requestAddTodoFocus()
+        } else {
+            openNotesDetail()
+        }
+    }
+
+    /// Shared toggle-behind-the-hotkey logic: when the panel is already open
+    /// showing this feature, the same ping closes it; otherwise it deep-links,
+    /// keys the window (vim navigation), and peeks. Pinned panels are never
+    /// closed by a ping.
+    private func toggleDetail(featureID: String, peekDuration: TimeInterval) {
         let targets: [NotchViewModel]
         if let screen = NSScreen.screenWithMouse,
            let id = screen.displayID,
@@ -348,13 +450,91 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             targets = Array(viewModels.values)
         }
         for viewModel in targets {
-            viewModel.requestedFeatureID = notesStore.id
-            viewModel.peek(duration: 30)
+            if viewModel.state == .open, viewModel.activeFeatureID == featureID {
+                viewModel.forceClose()
+            } else {
+                workspaceStore?.resetSelection()
+                agentStore.resetSelection()
+                notesStore.resetSelection()
+                viewModel.openedViaPing = true
+                viewModel.requestedFeatureID = featureID
+                viewModel.peek(duration: peekDuration)
+                viewModel.window?.makeKey()
+            }
         }
     }
 
-    /// Re-apply the persisted pinned screen after window rebuilds (launch,
-    /// display changes, config reloads).
+    // MARK: - Vim navigation
+
+    /// Routes key-downs to the active card whenever a notch panel is the key
+    /// window. Returns true when the event was consumed. Suspended while the
+    /// Notes add-field is focused (letters must type normally) except Esc.
+    private func handleVimKey(_ event: NSEvent) -> Bool {
+        guard let viewModel = viewModels.values.first(where: { $0.window?.isKeyWindow == true }),
+              viewModel.state == .open else { return false }
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard mods.isDisjoint(with: [.command, .control, .option]) else { return false }
+
+        let feature = viewModel.activeFeatureID
+
+        // Esc: blur the add field if typing (the field's own onExitCommand
+        // handles it — don't consume), otherwise close the panel.
+        if event.keyCode == 53 {
+            if feature == notesStore.id, notesStore.isAddFieldFocused { return false }
+            viewModel.forceClose()
+            return true
+        }
+
+        // Everything else passes through untouched while typing.
+        if feature == notesStore.id, notesStore.isAddFieldFocused { return false }
+
+        // Enter: activate the selection (switch workspace / focus agent /
+        // toggle to-do).
+        if event.keyCode == 36 || event.keyCode == 76 {
+            switch feature {
+            case notesStore.id:
+                notesStore.activateSelection()
+            case agentStore.id:
+                agentStore.activateSelection()
+                viewModel.forceClose()
+            default:
+                workspaceStore?.activateSelection()
+                viewModel.forceClose()
+            }
+            return true
+        }
+
+        guard let key = event.charactersIgnoringModifiers?.lowercased() else { return false }
+        let workspacesID = workspaceStore?.id ?? "workspaces"
+        switch (feature, key) {
+        case (_, "j"):
+            moveSelection(feature, by: feature == workspacesID ? WorkspacesFeatureView.maxPerRow : 1)
+        case (_, "k"):
+            moveSelection(feature, by: feature == workspacesID ? -WorkspacesFeatureView.maxPerRow : -1)
+        case (workspacesID, "h"):
+            workspaceStore?.moveSelection(by: -1)
+        case (workspacesID, "l"):
+            workspaceStore?.moveSelection(by: 1)
+        case (notesStore.id, "i"):
+            notesStore.requestAddTodoFocus()
+        case (notesStore.id, "d"):
+            notesStore.deleteSelection()
+        default:
+            return false
+        }
+        return true
+    }
+
+    private func moveSelection(_ feature: String, by delta: Int) {
+        switch feature {
+        case notesStore.id: notesStore.moveSelection(by: delta)
+        case agentStore.id: agentStore.moveSelection(by: delta)
+        default: workspaceStore?.moveSelection(by: delta)
+        }
+    }
+
+    /// Re-apply the persisted pinned screen + feature after window rebuilds
+    /// (launch, display changes, config reloads).
     private func applyPinnedFromConfig() {
         for (id, viewModel) in viewModels {
             viewModel.setPinned(config.pinnedDisplayID == id ? config.pinnedFeatureID : nil, notify: false)
