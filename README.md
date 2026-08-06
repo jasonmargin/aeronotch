@@ -41,15 +41,33 @@ Inspired by and architected after [TheBoringNotch](https://github.com/TheBoredTe
 - **One feature at a time, no tabs** — the open notch shows a single feature chosen by
   context: plain hover shows workspaces; opening via a strip deep-links to that feature.
 - **Notes notepad** — a taller drop-down (checklist strip between the workspaces and agents pills,
-  menu → **Open Notes**, or `AeroNotch ping-notes`): a quick-note scratch pad plus a
+  menu → **Open Notes**, or `AeroNotch ping-notes`): a
   combined to-do list. App-created to-dos persist in `~/.config/aeronotch/notes.json`;
   it also scans your Obsidian vaults for `- [ ]` tasks and **writes toggles back to
-  the markdown files** (two-way). The panel resists closing while it has keyboard
-  focus, so moving the mouse away mid-sentence never loses input. **Pin** it (pin
-  button in the header) to keep the drop-down permanently open on that screen —
-  peeks/hover never close it, and the pin survives restarts.
+  the markdown files** (two-way). Checking a task off records the completion date —
+  `completedAt` in the app store, `✅ yyyy-MM-dd` (Tasks-plugin style) in Obsidian —
+  and completed items are shown for the past 7 days, with a **load more** button
+  extending the window in 7-day increments. The panel resists closing while it has
+  keyboard focus, so moving the mouse away mid-sentence never loses input.
+- **Completion heatmap** — a GitHub-style contribution map (weeks × weekdays; the more
+  completions, the brighter the dot) in three places: the Notes drop-down (12 weeks),
+  the Completed settings tab (20 weeks), and an optional **desktop widget** (menu →
+  **Completion Widget**) that floats on the wallpaper behind your windows, draggable.
+- **Pinnable cards** — every drop-down (Workspaces, Agents, Notes) has a pin button in
+  its header: the card stays permanently open on that screen — peeks/hover never close
+  it, it hangs below the menu bar instead of covering it, and the pin (screen +
+  feature) survives restarts. Hovering another strip overlays that feature over the
+  pinned card without disturbing the pin.
 - **Extensible** — features plug into a `NotchFeature` registry; ships with Workspaces and Agents.
 - **Hover to open** — small delay (configurable) so casual fly-bys don't open it.
+- **Vim mode** — hotkey-opened panels take the keyboard: `h/j/k/l` navigate
+  (workspaces grid moves in all four directions; lists move `j/k`), `Enter`
+  activates (switch workspace / focus agent pane / toggle to-do), `i` focuses
+  the add-to-do field in Notes, `d` deletes the selected app to-do, `Esc`
+  backs out (blurs the field first, then closes).
+- **Settings window** — menu → **Settings…** (⌘,): live-bound preferences (persisted
+  to `config.json`) plus a **Completed** tab listing every checked-off to-do from
+  both sources, grouped by day.
 - **JetBrains Mono** — all notch text renders in JetBrains Mono when installed
   (falls back to the system monospaced font).
 
@@ -122,7 +140,9 @@ creates a fully-populated default):
 | `notesVaultPaths` | `null` | explicit Obsidian vault paths to scan (auto-detected when nil: margindept-kb + Obsidian's registry) |
 | `notesMaxHeight` | `460` | expanded Notes drop-down height |
 | `notesScanIntervalSeconds` | `60` | Obsidian rescan cadence |
-| `notesPinnedDisplayID` | `null` | screen with the Notes panel pinned open (set by the pin button) |
+| `completionWidgetEnabled` | `false` | desktop completion-heatmap widget |
+| `pinnedDisplayID` | `null` | screen with a card pinned open (set by the pin button) |
+| `pinnedFeatureID` | `null` | feature pinned on that screen (`"workspaces"` / `"agents"` / `"notes"`) |
 
 Restart the app after editing.
 
@@ -158,9 +178,9 @@ Sources/AeroNotch/
 │   └── Notes/
 │       ├── NoteItem.swift          AppTodo / ObsidianTodo / persisted payload
 │       ├── ObsidianTodoScanner.swift vault discovery + `- [ ]` scan + checkbox write-back
-│       ├── NotesStore.swift        app todos + quick note persistence, scan loop, NotchFeature
+│       ├── NotesStore.swift        app todos persistence, scan loop, NotchFeature
 │       ├── NotesStatusStrip.swift  the left-cluster capsule (glyph + open count)
-│       └── NotesFeatureView.swift  the notepad drop-down (quick note, add row, todo list, pin)
+│       └── NotesFeatureView.swift  the to-do drop-down (add row, heatmap, todo list)
 └── Aerospace/
     ├── AeroSpaceClient.swift   WorkspaceProviding protocol + CLI implementation
     └── AppIconProvider.swift   bundle-id → icon (running app → NSWorkspace → name match)
