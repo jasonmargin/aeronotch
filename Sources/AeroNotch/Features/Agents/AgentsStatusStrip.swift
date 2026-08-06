@@ -72,7 +72,7 @@ struct AgentsStatusStrip: View {
                     }
                     if group.sessions.count > maxDotsPerGroup {
                         Text("+\(group.sessions.count - maxDotsPerGroup)")
-                            .font(.system(size: 8, weight: .medium))
+                            .font(.notch(size: 8, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
                     }
                 }

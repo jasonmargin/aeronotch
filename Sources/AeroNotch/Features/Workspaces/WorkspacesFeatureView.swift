@@ -1,14 +1,18 @@
 import SwiftUI
 
-/// Row of workspace pills shown inside the expanded notch.
-/// Centers the row when everything fits; falls back to horizontal scrolling
-/// when there are more workspaces than the notch is wide.
+/// Workspace grid shown inside the expanded notch — same drop-down layout
+/// language as Agents/Notes: pills wrapping at a fixed number per row,
+/// hugging the measured content size. Clicking a pill switches workspace.
 struct WorkspacesFeatureView: View {
     @ObservedObject var store: WorkspaceStore
     let config: AeroNotchConfig
 
     @Environment(\.aerospaceMonitorID) private var monitorID: Int?
     @EnvironmentObject private var vm: NotchViewModel
+
+    /// Max pills per row; extra workspaces wrap onto the next row (never one
+    /// over-long row).
+    static let maxPerRow = 5
 
     /// The workspace to highlight on *this* screen: the one visible on this
     /// screen's monitor, falling back to the globally focused one.
@@ -19,128 +23,70 @@ struct WorkspacesFeatureView: View {
         return store.snapshot.focused
     }
 
+    /// The grid renders exactly the store's navigable list so the vim
+    /// selection index always matches what's on screen.
     private var workspaces: [String] {
-        store.visibleWorkspaces(
-            showEmpty: config.showEmptyWorkspaces,
-            hidden: config.hiddenWorkspaces,
-            alsoVisible: focusedWorkspace
-        )
+        store.navigableWorkspaces
     }
 
     var body: some View {
-        if vm.presentationMode == .menuBarLeft {
-            menuBarPillContent
-        } else {
-            notchContent
-        }
-    }
-
-    // MARK: - Notch mode (downward panel)
-
-    private var notchContent: some View {
         Group {
             if !store.isAvailable {
                 Label("AeroSpace not found", systemImage: "exclamationmark.triangle")
-                    .font(.caption)
+                    .font(.notch(size: 11))
                     .foregroundStyle(.yellow)
             } else if workspaces.isEmpty {
                 Text("No workspaces")
-                    .font(.caption)
+                    .font(.notch(size: 11))
                     .foregroundStyle(.gray)
             } else {
-                ViewThatFits(in: .horizontal) {
-                    pillsRow
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        pillsRow
-                    }
-                }
-                .padding(.horizontal, 10)
+                gridPanel
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        // Measure the row's *ideal* width (even when the visible copy scrolls)
-        // and report it so the notch panel hugs the content.
-        .background {
-            pillsRow
-                .fixedSize()
-                .opacity(0)
-                .background(
-                    GeometryReader { geo in
-                        Color.clear
-                            .onAppear { reportWidth(geo.size.width) }
-                            .onChange(of: geo.size.width) { _, newWidth in reportWidth(newWidth) }
-                    }
-                )
-        }
     }
 
-    // MARK: - Menu-bar mode (self-sizing pill; morphs left on hover)
+    // MARK: - Grid panel
 
-    /// Resting = focused-workspace name only; hovering = the full pill row.
-    /// Intrinsically sized so the hosting capsule hugs it and grows leftward.
-    @ViewBuilder
-    private var menuBarPillContent: some View {
-        if !store.isAvailable {
-            Label("AeroSpace", systemImage: "exclamationmark.triangle")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.yellow)
-                .fixedSize()
-        } else if !isExpanded || workspaces.isEmpty {
-            restingLabel.fixedSize()
-        } else {
-            pillsRow.fixedSize()
-        }
-    }
-
-    /// The pill only morphs into the full list when the *workspaces* feature is
-    /// the active one — so hovering the agents pill (which opens the shared
-    /// state) never expands this pill.
-    private var isExpanded: Bool {
-        vm.state == .open && (vm.requestedFeatureID == nil || vm.requestedFeatureID == store.id)
-    }
-
-    /// Resting pill: focused workspace name plus its app icons (same glyphs the
-    /// expanded row shows for that workspace).
-    private var restingLabel: some View {
-        let focused = focusedWorkspace
-        let apps = focused.flatMap { store.snapshot.appsByWorkspace[$0] } ?? []
-        return HStack(spacing: 5) {
-            Text(focused ?? "—")
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-
-            if config.showAppIcons && !apps.isEmpty {
-                HStack(spacing: 2) {
-                    ForEach(apps.prefix(config.maxAppIconsPerWorkspace), id: \.self) { app in
-                        Image(nsImage: AppIconProvider.shared.icon(for: app))
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 13, height: 13)
-                    }
-                    if apps.count > config.maxAppIconsPerWorkspace {
-                        Text("+\(apps.count - config.maxAppIconsPerWorkspace)")
-                            .font(.system(size: 8, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+    private var gridPanel: some View {
+        FeaturePanel(featureID: store.id, title: "Workspaces", subtitle: focusedWorkspace) {
+            ScrollView(showsIndicators: false) {
+                grid
+                    .frame(maxWidth: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .onAppear(perform: reportIdealHeight)
+        .onChange(of: workspaces) { _, _ in reportIdealHeight() }
     }
 
-    private func reportWidth(_ width: CGFloat) {
-        vm.reportOpenContentWidth(width, for: store.id)
+    /// Pills are fixed-height (single line + padding), so the ideal height is
+    /// computed directly from the row count — no hidden measurement pass,
+    /// no post-open resize lag.
+    private func reportIdealHeight() {
+        let rowHeight: CGFloat = 27
+        let rows = CGFloat((workspaces.count + Self.maxPerRow - 1) / Self.maxPerRow)
+        vm.reportOpenContentHeight(
+            rows * rowHeight + max(rows - 1, 0) * 6 + FeaturePanelMetrics.chromeHeight,
+            for: store.id
+        )
     }
 
-    private var pillsRow: some View {
-        HStack(spacing: 6) {
-            ForEach(workspaces, id: \.self) { workspace in
+    /// Flexible 5-column grid: cells stretch to the card's full width and
+    /// pills center within their cells, so any row count spreads edge to edge.
+    private var grid: some View {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: Self.maxPerRow),
+            spacing: 6
+        ) {
+            ForEach(Array(workspaces.enumerated()), id: \.element) { index, workspace in
                 WorkspacePillView(
                     name: workspace,
                     isFocused: workspace == focusedWorkspace,
+                    isSelected: index == store.selectionIndex,
                     apps: store.snapshot.appsByWorkspace[workspace] ?? [],
                     showIcons: config.showAppIcons,
                     maxIcons: config.maxAppIconsPerWorkspace,
-                    compact: vm.presentationMode == .menuBarLeft,
                     action: { store.switchToWorkspace(workspace, onMonitor: monitorID) }
                 )
             }
@@ -151,10 +97,10 @@ struct WorkspacesFeatureView: View {
 private struct WorkspacePillView: View {
     let name: String
     let isFocused: Bool
+    let isSelected: Bool
     let apps: [AeroAppInfo]
     let showIcons: Bool
     let maxIcons: Int
-    let compact: Bool
     let action: () -> Void
 
     @State private var isHovering = false
@@ -163,7 +109,7 @@ private struct WorkspacePillView: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Text(name)
-                    .font(.system(size: 12, weight: isFocused ? .bold : .medium, design: .rounded))
+                    .font(.notch(size: 12, weight: isFocused ? .bold : .medium))
 
                 if showIcons && !apps.isEmpty {
                     HStack(spacing: 2) {
@@ -175,14 +121,14 @@ private struct WorkspacePillView: View {
                         }
                         if apps.count > maxIcons {
                             Text("+\(apps.count - maxIcons)")
-                                .font(.system(size: 8, weight: .medium))
+                                .font(.notch(size: 8, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
             }
             .padding(.horizontal, 9)
-            .padding(.vertical, compact ? 3 : 5)
+            .padding(.vertical, 5)
             .foregroundStyle(isFocused ? Color.white : Color.white.opacity(0.55))
             .background {
                 Capsule().fill(
@@ -193,7 +139,9 @@ private struct WorkspacePillView: View {
             }
             .overlay {
                 Capsule().strokeBorder(
-                    isFocused ? Color.white.opacity(0.35) : Color.clear,
+                    isSelected ? Color.white.opacity(0.6)
+                        : isFocused ? Color.white.opacity(0.35)
+                        : Color.clear,
                     lineWidth: 1
                 )
             }

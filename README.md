@@ -11,30 +11,65 @@ Inspired by and architected after [TheBoringNotch](https://github.com/TheBoredTe
 
 ## Features
 
-- **Workspace pills** — all non-empty workspaces (+ focused) as pills inside the notch,
-  with app icons per workspace.
+- **Workspace grid** — all non-empty workspaces (+ focused) as pills in a drop-down
+  grid, max 5 per row, with app icons per workspace. The active workspace shows in a
+  persistent capsule at the notch's left edge; the grid opens on hover of the notch
+  or the capsule.
 - **Agent indicator** — a persistent capsule pinned to the notch's left edge showing your
   AI coding-agent sessions as tracked by [herdr](https://herdr.dev) (Claude Code, pi, …):
   one glyph per agent kind (Claude starburst, π, …) + a status dot per session
   (filled+pulsing = working, thick ring = blocked, dim ring = idle). Hover/tap it to open
-  the **Agents popover** — one pill per session, click to jump to that herdr pane.
+  the **Agents list** — one row per session (same list layout as Notes), click to jump
+  to that herdr pane. While Notes is pinned, hovering shows the Agents list *over* the
+  notes panel (reverts on hover-out; the pin is never disturbed).
   Toggle the feature (menu → **Agents**) or just the indicator (**Agent Indicator**).
-- **Adaptive width** — the expanded notch measures its content and hugs it (animated),
-  clamped between a minimum and `maxOpenWidth`; scrolls only when content exceeds the cap.
+- **Adaptive size** — the expanded notch measures its content and hugs it (animated):
+  width clamped between a minimum and `maxOpenWidth`, height between the single-row
+  default and `notesMaxHeight`; scrolls only when content exceeds the cap.
 - **Click to switch** — clicking a pill runs `aerospace workspace <name>` (with an
   optimistic highlight so it feels instant).
 - **Multi-monitor** — one notch per display; each screen highlights the workspace visible
   on *that* monitor (via AeroSpace's `monitor-appkit-nsscreen-screens-id` bridge).
-- **Peek on switch** — expands briefly on the screen you switched on, then retracts.
-- **Two presentation modes** — for the *workspaces* popover: `notch` (panel expands out
-  of the notch) or `menuBarLeft` (a menu-bar-height band from the screen's leading edge to
-  the notch). Switch live from the menu bar icon → **Workspace Style**, or set
-  `presentationMode` in the config. (The Agents popover always opens at the notch itself,
-  and the agent indicator stays visible either way.)
-- **One row, no tabs** — the open notch shows a single feature chosen by context:
-  workspace peeks show workspaces; opening via the agent indicator shows agents.
+- **Hover to open, not on switch** — the notch expands only when you hover it (small
+  configurable delay filters fly-bys); the active workspace lives in the left-edge
+  capsule. A brief expand-on-switch peek is available via menu → **Peek on Workspace
+  Switch** or `peekOnWorkspaceSwitch` (default off).
+- **Two presentation modes** — `notch` (window centered on the notch) or `menuBarLeft`
+  (window spans from the screen's leading edge to the notch). Both drop every feature
+  out of the notch; the mode only changes window anchoring. Switch live from the menu
+  bar icon → **Workspace Style**, or set `presentationMode` in the config.
+- **One feature at a time, no tabs** — the open notch shows a single feature chosen by
+  context: plain hover shows workspaces; opening via a strip deep-links to that feature.
+- **Notes notepad** — a taller drop-down (checklist strip between the workspaces and agents pills,
+  menu → **Open Notes**, or `AeroNotch ping-notes`): a
+  combined to-do list. App-created to-dos persist in `~/.config/aeronotch/notes.json`;
+  it also scans your Obsidian vaults for `- [ ]` tasks and **writes toggles back to
+  the markdown files** (two-way). Checking a task off records the completion date —
+  `completedAt` in the app store, `✅ yyyy-MM-dd` (Tasks-plugin style) in Obsidian —
+  and completed items are shown for the past 7 days, with a **load more** button
+  extending the window in 7-day increments. The panel resists closing while it has
+  keyboard focus, so moving the mouse away mid-sentence never loses input.
+- **Completion heatmap** — a GitHub-style contribution map (weeks × weekdays; the more
+  completions, the brighter the dot) in three places: the Notes drop-down (12 weeks),
+  the Completed settings tab (20 weeks), and an optional **desktop widget** (menu →
+  **Completion Widget**) that floats on the wallpaper behind your windows, draggable.
+- **Pinnable cards** — every drop-down (Workspaces, Agents, Notes) has a pin button in
+  its header: the card stays permanently open on that screen — peeks/hover never close
+  it, it hangs below the menu bar instead of covering it, and the pin (screen +
+  feature) survives restarts. Hovering another strip overlays that feature over the
+  pinned card without disturbing the pin.
 - **Extensible** — features plug into a `NotchFeature` registry; ships with Workspaces and Agents.
 - **Hover to open** — small delay (configurable) so casual fly-bys don't open it.
+- **Vim mode** — hotkey-opened panels take the keyboard: `h/j/k/l` navigate
+  (workspaces grid moves in all four directions; lists move `j/k`), `Enter`
+  activates (switch workspace / focus agent pane / toggle to-do), `i` focuses
+  the add-to-do field in Notes, `d` deletes the selected app to-do, `Esc`
+  backs out (blurs the field first, then closes).
+- **Settings window** — menu → **Settings…** (⌘,): live-bound preferences (persisted
+  to `config.json`) plus a **Completed** tab listing every checked-off to-do from
+  both sources, grouped by day.
+- **JetBrains Mono** — all notch text renders in JetBrains Mono when installed
+  (falls back to the system monospaced font).
 
 ## Install
 
@@ -64,7 +99,7 @@ Other recipes: `just build` · `just bundle` · `just run` (dev, no bundle) ·
 
 ## AeroSpace hook (instant switch detection)
 
-The app polls as a fallback, but the hook makes peeks instant. One line in
+The app polls as a fallback, but the hook makes state updates instant. One line in
 `~/.config/aerospace/aerospace.toml` (this repo's installer already extended the
 existing sketchybar hook):
 
@@ -73,8 +108,9 @@ exec-on-workspace-change = ["/bin/bash", "-c", "sketchybar --trigger aerospace_w
 ```
 
 Then `aerospace reload-config`. The `ping-workspace-change` CLI command posts a
-`DistributedNotification` that the running app listens for. A second command,
-`ping-agents`, transiently opens the Agents popover — handy for hotkey daemons.
+`DistributedNotification` that the running app listens for. Two more commands,
+`ping-agents` and `ping-notes`, transiently open the Agents popover / Notes
+drop-down — handy for hotkey daemons.
 
 ## Config
 
@@ -83,9 +119,10 @@ creates a fully-populated default):
 
 | key | default | meaning |
 |---|---|---|
-| `presentationMode` | `"notch"` | `"notch"` or `"menuBarLeft"` (workspaces popover style) |
+| `presentationMode` | `"notch"` | `"notch"` or `"menuBarLeft"` (window anchoring; all features drop from the notch either way) |
 | `pollIntervalSeconds` | `2.0` | fallback poll cadence |
-| `peekDurationSeconds` | `1.5` | how long the notch stays up after a switch |
+| `peekOnWorkspaceSwitch` | `false` | expand the notch briefly on every workspace switch (off = hover-only) |
+| `peekDurationSeconds` | `1.5` | how long the notch stays up after a peek |
 | `hoverOpenDelaySeconds` | `0.12` | hover dwell before opening |
 | `showEmptyWorkspaces` | `false` | show all configured workspaces |
 | `showAppIcons` | `true` | app icons inside pills |
@@ -98,6 +135,14 @@ creates a fully-populated default):
 | `agentsPollIntervalSeconds` | `3.0` | `herdr agent list` poll cadence |
 | `herdrPath` | `null` | explicit herdr binary path (auto-detected when nil) |
 | `aerospacePath` | `null` | explicit aerospace binary path |
+| `notesEnabled` | `true` | Notes notepad feature (drop-down + indicator) |
+| `notesShowClosedIndicator` | `true` | persistent checklist capsule between workspaces and agents pills |
+| `notesVaultPaths` | `null` | explicit Obsidian vault paths to scan (auto-detected when nil: margindept-kb + Obsidian's registry) |
+| `notesMaxHeight` | `460` | expanded Notes drop-down height |
+| `notesScanIntervalSeconds` | `60` | Obsidian rescan cadence |
+| `completionWidgetEnabled` | `false` | desktop completion-heatmap widget |
+| `pinnedDisplayID` | `null` | screen with a card pinned open (set by the pin button) |
+| `pinnedFeatureID` | `null` | feature pinned on that screen (`"workspaces"` / `"agents"` / `"notes"`) |
 
 Restart the app after editing.
 
@@ -118,16 +163,24 @@ Sources/AeroNotch/
 │   └── NSScreen+Display.swift  displayID / appKitScreenIndex / screenWithMouse
 ├── Features/
 │   ├── NotchFeature.swift      protocol + registry  ← the extensibility seam
+│   ├── FeaturePanel.swift      shared drop-down canvas (one width/padding/header for all features)
 │   ├── Workspaces/
 │   │   ├── WorkspaceStore.swift    snapshot, hook listener + fallback polling, NotchFeature
-│   │   └── WorkspacesFeatureView.swift  the pills
+│   │   ├── WorkspacesStatusStrip.swift active-workspace capsule (name + app icons)
+│   │   └── WorkspacesFeatureView.swift  the drop-down grid (max 5 pills per row)
 │   └── Agents/
 │       ├── AgentSession.swift      session model + status severity
 │       ├── HerdrClient.swift       `herdr agent list` polling backend (herdr owns detection)
 │       ├── AgentSessionStore.swift poll loop + hysteresis, NotchFeature
 │       ├── AgentsStatusStrip.swift the always-on left-of-notch capsule (glyphs + dots)
 │       ├── AgentGlyph.swift        Claude starburst (drawn, monochrome) + fallback glyphs
-│       └── AgentsFeatureView.swift session pills (click → focus herdr pane)
+│       └── AgentsFeatureView.swift session list rows (click → focus herdr pane)
+│   └── Notes/
+│       ├── NoteItem.swift          AppTodo / ObsidianTodo / persisted payload
+│       ├── ObsidianTodoScanner.swift vault discovery + `- [ ]` scan + checkbox write-back
+│       ├── NotesStore.swift        app todos persistence, scan loop, NotchFeature
+│       ├── NotesStatusStrip.swift  the left-cluster capsule (glyph + open count)
+│       └── NotesFeatureView.swift  the to-do drop-down (add row, heatmap, todo list)
 └── Aerospace/
     ├── AeroSpaceClient.swift   WorkspaceProviding protocol + CLI implementation
     └── AppIconProvider.swift   bundle-id → icon (running app → NSWorkspace → name match)
@@ -170,10 +223,11 @@ polls `herdr agent list` and renders its `idle|working|blocked|unknown` states:
 
 - **Closed notch**: the indicator capsule sits left of the notch, always visible
   while sessions exist — workspace peeks don't hide it.
-- **Open**: hover/tap the capsule (or `AeroNotch ping-agents`) → the Agents popover
+- **Open**: hover/tap the capsule (or `AeroNotch ping-agents`) → the Agents list
   hangs from the notch itself (regardless of `presentationMode`, which only styles
-  the workspaces popover). One pill per session; click jumps to that herdr pane
-  (`herdr agent focus <pane>`).
+  the workspaces popover). One row per session; click jumps to that herdr pane
+  (`herdr agent focus <pane>`). While Notes is pinned, hovering the capsule shows
+  the Agents list over the notes panel without disturbing the pin.
 - Only agents running **inside herdr** are visible — by design (herdr is the
   single source of truth for status). Poll failures blank the capsule after 2
   consecutive errors (hysteresis), never on a single hiccup.
