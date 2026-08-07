@@ -37,11 +37,6 @@ struct NotchContentView: View {
     /// until hovered; this capsule is the at-a-glance state.
     private var showWorkspacesStrip: Bool { true }
 
-    /// Measured width of the whole strip cluster — lets notch mode offset
-    /// the (self-sizing) cluster left of the centered panel without
-    /// disturbing the panel's centering.
-    @State private var clusterWidth: CGFloat = 0
-
     @ViewBuilder
     private var workspacesStrip: some View {
         WorkspacesStatusStrip(store: workspaceStore, config: vm.config)
@@ -142,23 +137,20 @@ struct NotchContentView: View {
         ZStack(alignment: .top) {
             notchModePanel
 
-            // The strip cluster sits just left of the centered panel, offset
-            // by its measured width — workspaces (outboard), notes, agents.
-            stripCluster
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: StripClusterWidthKey.self, value: geo.size.width)
-                    }
-                )
-                .frame(height: vm.closedNotchSize.height)
-                .offset(x: clusterXOffset)
-                .animation(vm.state == .open ? openAnimation : closeAnimation, value: vm.state)
-                .animation(widthAnimation, value: vm.effectiveOpenWidth)
-                .animation(widthAnimation, value: clusterWidth)
+            // The strip cluster — workspaces (outboard), notes, agents —
+            // anchored by its trailing edge to the physical notch's leading
+            // edge. Anchored from the window edge (no width measurement), so
+            // strips appearing/disappearing never shift it under the notch.
+            HStack {
+                Spacer(minLength: 0)
+                stripCluster
+                    .frame(height: vm.closedNotchSize.height)
+            }
+            .padding(.trailing, clusterTrailingPadding)
+            .animation(vm.state == .open ? openAnimation : closeAnimation, value: vm.state)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .preferredColorScheme(.dark)
-        .onPreferenceChange(StripClusterWidthKey.self) { clusterWidth = $0 }
         .onChange(of: vm.state) { _, newState in
             // One-shot deep link: applies to a single open, then resets.
             if newState == .closed { vm.requestedFeatureID = nil }
@@ -227,10 +219,11 @@ struct NotchContentView: View {
 
     // MARK: - Shared content
 
-    /// Cluster X: glued to the closed notch's left edge — stays put while
-    /// the panel expands around/under it.
-    private var clusterXOffset: CGFloat {
-        -(vm.closedNotchSize.width / 2 + clusterWidth / 2 + 6)
+    /// Trailing padding gluing the strip cluster's trailing edge to the
+    /// *physical* notch's leading edge with a 6pt gap: window trailing =
+    /// center + maxOpenWidth/2; target = center - exactNotchWidth/2 - 6.
+    private var clusterTrailingPadding: CGFloat {
+        vm.config.maxOpenWidth / 2 + vm.exactClosedNotchWidth / 2 + 6
     }
 
     /// Inner content height shared by the strip capsules, so they all render
@@ -251,11 +244,4 @@ struct NotchContentView: View {
                 .foregroundStyle(.gray)
         }
     }
-}
-
-/// Measured width of the whole left-edge strip cluster, reported up to
-/// `NotchContentView` for notch-mode placement.
-private struct StripClusterWidthKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
