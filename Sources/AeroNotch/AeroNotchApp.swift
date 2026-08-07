@@ -42,14 +42,6 @@ private struct MenuBarMenu: View {
         }
         .disabled(!appDelegate.hasNotches)
 
-        Picker("Workspace Style", selection: Binding(
-            get: { appDelegate.presentationMode },
-            set: { appDelegate.setPresentationMode($0) }
-        )) {
-            Text("Notch").tag(AeroNotchConfig.PresentationMode.notch)
-            Text("Menu Bar Strip").tag(AeroNotchConfig.PresentationMode.menuBarLeft)
-        }
-
         Toggle("Peek on Workspace Switch", isOn: Binding(
             get: { appDelegate.peekOnWorkspaceSwitch },
             set: { appDelegate.setPeekOnWorkspaceSwitch($0) }
@@ -160,12 +152,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var keyMonitor: Any?
 
     var hasNotches: Bool { !viewModels.isEmpty }
-
-    var presentationMode: AeroNotchConfig.PresentationMode { settings.presentationMode }
-
-    func setPresentationMode(_ mode: AeroNotchConfig.PresentationMode) {
-        settings.setPresentationMode(mode)
-    }
 
     var peekOnWorkspaceSwitch: Bool { settings.current.peekOnWorkspaceSwitch }
 
@@ -558,25 +544,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for screen in screens {
             guard let id = screen.displayID else { continue }
 
-            // Menu-bar mode: the window spans from the screen's leading edge to
-            // past the notch — far enough that the Agents panel can stay
-            // *centered* on the notch. The region right of the notch is
-            // transparent and hit-tests to nil (click-through).
-            let windowSize: CGSize
-            let windowX: CGFloat
-            let windowHeight = max(config.openHeight, config.notesMaxHeight) + 40
-            if config.presentationMode == .menuBarLeft {
-                let exact = NotchMetrics.closedNotchSize(for: screen, overhang: 0)
-                let notchSpan = max(exact.width, NotchContentView.panelMaxWidth)
-                windowSize = CGSize(
-                    width: screen.frame.width / 2 + notchSpan / 2 + 8,
-                    height: windowHeight
-                )
-                windowX = screen.frame.minX
-            } else {
-                windowSize = CGSize(width: config.maxOpenWidth, height: windowHeight)
-                windowX = screen.frame.midX - windowSize.width / 2
-            }
+            // Fixed, centered, full-height window: the notch content morphs
+            // inside it (no NSWindow frame animation), and everything outside
+            // the drawn panel hit-tests to nil (click-through). Full height so
+            // tall grids (all workspaces) are never window-clipped.
+            let windowSize = CGSize(width: config.maxOpenWidth, height: screen.frame.height)
+            let windowX = screen.frame.midX - windowSize.width / 2
 
             let viewModel: NotchViewModel
             if let existing = viewModels[id] {

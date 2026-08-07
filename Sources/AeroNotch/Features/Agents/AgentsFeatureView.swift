@@ -31,11 +31,7 @@ struct AgentsFeatureView: View {
                 listPanel
             }
         }
-        .frame(
-            maxWidth: .infinity,
-            maxHeight: .infinity,
-            alignment: vm.presentationMode == .menuBarLeft ? .leading : .center
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     // MARK: - List panel

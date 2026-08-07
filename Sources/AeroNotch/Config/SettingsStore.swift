@@ -11,19 +11,8 @@ final class SettingsStore: ObservableObject {
     /// Called after any mutation (AppDelegate rebuilds windows/view models).
     var onChange: ((AeroNotchConfig) -> Void)?
 
-    var presentationMode: AeroNotchConfig.PresentationMode {
-        current.presentationMode
-    }
-
     init(config: AeroNotchConfig) {
         self.current = config
-    }
-
-    func setPresentationMode(_ mode: AeroNotchConfig.PresentationMode) {
-        guard mode != current.presentationMode else { return }
-        current.presentationMode = mode
-        persist()
-        onChange?(current)
     }
 
     func setAgentsShowClosedIndicator(_ value: Bool) {

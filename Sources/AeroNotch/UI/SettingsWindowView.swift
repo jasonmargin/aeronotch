@@ -47,10 +47,6 @@ private struct SettingsTab: View {
                             launchAtLogin = !newValue
                         }
                     }
-                Picker("Workspace Style", selection: binding(\.presentationMode, settings.setPresentationMode)) {
-                    Text("Notch").tag(AeroNotchConfig.PresentationMode.notch)
-                    Text("Menu Bar Strip").tag(AeroNotchConfig.PresentationMode.menuBarLeft)
-                }
                 Toggle("Peek on Workspace Switch", isOn: binding(\.peekOnWorkspaceSwitch, settings.setPeekOnWorkspaceSwitch))
                 LabeledContent("Hover Open Delay") {
                     Slider(

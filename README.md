@@ -12,9 +12,9 @@ Inspired by and architected after [TheBoringNotch](https://github.com/TheBoredTe
 ## Features
 
 - **Workspace grid** — all non-empty workspaces (+ focused) as pills in a drop-down
-  grid, max 5 per row, with app icons per workspace. The active workspace shows in a
-  persistent capsule at the notch's left edge; the grid opens on hover of the notch
-  or the capsule.
+  grid, max 5 per row, with app icons per workspace. The panel always grows to show
+  every row — no scrolling. The active workspace shows in a persistent capsule at
+  the notch's left edge; the grid opens on hover of the notch or the capsule.
 - **Agent indicator** — a persistent capsule pinned to the notch's left edge showing your
   AI coding-agent sessions as tracked by [herdr](https://herdr.dev) (Claude Code, pi, …):
   one glyph per agent kind (Claude starburst, π, …) + a status dot per session
@@ -34,10 +34,6 @@ Inspired by and architected after [TheBoringNotch](https://github.com/TheBoredTe
   configurable delay filters fly-bys); the active workspace lives in the left-edge
   capsule. A brief expand-on-switch peek is available via menu → **Peek on Workspace
   Switch** or `peekOnWorkspaceSwitch` (default off).
-- **Two presentation modes** — `notch` (window centered on the notch) or `menuBarLeft`
-  (window spans from the screen's leading edge to the notch). Both drop every feature
-  out of the notch; the mode only changes window anchoring. Switch live from the menu
-  bar icon → **Workspace Style**, or set `presentationMode` in the config.
 - **One feature at a time, no tabs** — the open notch shows a single feature chosen by
   context: plain hover shows workspaces; opening via a strip deep-links to that feature.
 - **Notes notepad** — a taller drop-down (checklist strip between the workspaces and agents pills,
@@ -119,7 +115,6 @@ creates a fully-populated default):
 
 | key | default | meaning |
 |---|---|---|
-| `presentationMode` | `"notch"` | `"notch"` or `"menuBarLeft"` (window anchoring; all features drop from the notch either way) |
 | `pollIntervalSeconds` | `2.0` | fallback poll cadence |
 | `peekOnWorkspaceSwitch` | `false` | expand the notch briefly on every workspace switch (off = hover-only) |
 | `peekDurationSeconds` | `1.5` | how long the notch stays up after a peek |
@@ -224,10 +219,9 @@ polls `herdr agent list` and renders its `idle|working|blocked|unknown` states:
 - **Closed notch**: the indicator capsule sits left of the notch, always visible
   while sessions exist — workspace peeks don't hide it.
 - **Open**: hover/tap the capsule (or `AeroNotch ping-agents`) → the Agents list
-  hangs from the notch itself (regardless of `presentationMode`, which only styles
-  the workspaces popover). One row per session; click jumps to that herdr pane
-  (`herdr agent focus <pane>`). While Notes is pinned, hovering the capsule shows
-  the Agents list over the notes panel without disturbing the pin.
+  hangs from the notch itself. One row per session; click jumps to that herdr pane
+  (`herdr agent focus <pane>`). While a card is pinned, hovering the capsule shows
+  the Agents list over the pinned panel without disturbing the pin.
 - Only agents running **inside herdr** are visible — by design (herdr is the
   single source of truth for status). Poll failures blank the capsule after 2
   consecutive errors (hysteresis), never on a single hiccup.

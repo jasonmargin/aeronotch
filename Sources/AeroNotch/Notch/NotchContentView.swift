@@ -139,33 +139,24 @@ struct NotchContentView: View {
     }
 
     var body: some View {
-        ZStack(alignment: vm.presentationMode == .menuBarLeft ? .topTrailing : .top) {
-            switch vm.presentationMode {
-            case .notch:
-                notchModePanel
-            case .menuBarLeft:
-                menuBarModePanel
-            }
+        ZStack(alignment: .top) {
+            notchModePanel
 
-            // Notch mode: the strip cluster sits just left of the centered
-            // panel, offset by its measured width — workspaces (outboard),
-            // notes, agents. (menuBarLeft mode renders it as an HStack
-            // sibling instead.)
-            if vm.presentationMode == .notch {
-                stripCluster
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(key: StripClusterWidthKey.self, value: geo.size.width)
-                        }
-                    )
-                    .frame(height: vm.closedNotchSize.height)
-                    .offset(x: clusterXOffset)
-                    .animation(vm.state == .open ? openAnimation : closeAnimation, value: vm.state)
-                    .animation(widthAnimation, value: vm.effectiveOpenWidth)
-                    .animation(widthAnimation, value: clusterWidth)
-            }
+            // The strip cluster sits just left of the centered panel, offset
+            // by its measured width — workspaces (outboard), notes, agents.
+            stripCluster
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: StripClusterWidthKey.self, value: geo.size.width)
+                    }
+                )
+                .frame(height: vm.closedNotchSize.height)
+                .offset(x: clusterXOffset)
+                .animation(vm.state == .open ? openAnimation : closeAnimation, value: vm.state)
+                .animation(widthAnimation, value: vm.effectiveOpenWidth)
+                .animation(widthAnimation, value: clusterWidth)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: vm.presentationMode == .menuBarLeft ? .topTrailing : .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .preferredColorScheme(.dark)
         .onPreferenceChange(StripClusterWidthKey.self) { clusterWidth = $0 }
         .onChange(of: vm.state) { _, newState in
@@ -234,127 +225,17 @@ struct NotchContentView: View {
         }
     }
 
-    // MARK: - Menu-bar mode (band from the screen's leading edge to the notch)
+    // MARK: - Shared content
 
-    /// Notch-mode strip X: glued to the closed notch's left edge — stays put
-    /// while the panel expands around/under it (lands on the panel's
-    /// always-empty top strip).
     /// Cluster X: glued to the closed notch's left edge — stays put while
     /// the panel expands around/under it.
     private var clusterXOffset: CGFloat {
         -(vm.closedNotchSize.width / 2 + clusterWidth / 2 + 6)
     }
 
-    /// True while the open panel is showing any downward detail — in
-    /// menuBarLeft mode every feature (workspaces grid, agents, notes)
-    /// drops out of the notch.
-    private var showingNotchDropDetail: Bool {
-        vm.state == .open
-    }
-
-    /// Cap on the Agents drop-down width. Also determines how far the window
-    /// extends right of the notch, so that panel can stay centered on the notch.
-    static let panelMaxWidth: CGFloat = 620
-
-    /// Inner content height shared by the menu-bar workspace pill and the
-    /// agents pill, so both capsules render at the same height.
+    /// Inner content height shared by the strip capsules, so they all render
+    /// at the same height.
     static let menuBarPillContentHeight: CGFloat = 16
-
-    /// Span the window must cover right of screen-center: the wider of the
-    /// fake notch and the panel cap.
-    private var notchSpan: CGFloat {
-        max(vm.exactClosedNotchWidth, NotchContentView.panelMaxWidth)
-    }
-
-    /// Trailing padding keeping the notch/detail-panel's center pinned at
-    /// screen-center as it widens (window trailing edge = center + notchSpan/2 + 8).
-    private var notchTrailingPadding: CGFloat {
-        (notchSpan - detailPanelWidth) / 2 + 8
-    }
-
-    /// Trailing padding gluing the left cluster's (agent strip's) trailing edge
-    /// to the *closed* notch's leading edge, with a small gap. The workspace
-    /// pill sits outboard of the strip and grows leftward — never crossing this.
-    private var clusterTrailingPadding: CGFloat {
-        notchSpan / 2 + vm.exactClosedNotchWidth / 2 + 8 + 6
-    }
-
-    /// Detail drop-down width: the shared card width plus the panel's
-    /// horizontal padding — identical for every FeaturePanel card; fake-notch
-    /// width when closed so it never jumps on first open.
-    private var detailPanelWidth: CGFloat {
-        guard showingNotchDropDetail else { return vm.exactClosedNotchWidth }
-        let content = vm.openContentWidths[vm.activeFeatureID] ?? FeaturePanelMetrics.contentWidth
-        return min(content + 24, NotchContentView.panelMaxWidth)
-    }
-
-    /// Detail drop-down height: hugs the active feature's reported content
-    /// height (Notes defaults to the tall notepad); closed-notch height when
-    /// no detail is showing.
-    private var detailPanelHeight: CGFloat {
-        showingNotchDropDetail ? vm.effectiveOpenHeight : vm.closedNotchSize.height
-    }
-
-    private var menuBarModePanel: some View {
-        ZStack {
-            // The (fake) notch. Every feature drops downward out of it —
-            // workspaces grid on plain hover (the default feature), agents /
-            // notes via their strips. Always hoverable so the notch opens
-            // exactly on hover (no auto-expand on workspace switches).
-            ZStack(alignment: .top) {
-                if showingNotchDropDetail {
-                    VStack(spacing: 0) {
-                        // Keep the notch strip empty; content lives below it.
-                        // When pinned, the strip is excluded from the panel
-                        // entirely (see pinnedPanelInset).
-                        Spacer()
-                            .frame(height: vm.closedNotchSize.height - pinnedPanelInset)
-                        openContent
-                            .padding(.horizontal, 12)
-                            .padding(.bottom, 6)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .transition(
-                        .scale(scale: 0.92, anchor: .top)
-                            .combined(with: .opacity)
-                    )
-                }
-            }
-            .frame(width: detailPanelWidth, height: detailPanelHeight - pinnedPanelInset)
-            .background(Color.black)
-            .clipShape(
-                NotchShape(
-                    topCornerRadius: showingNotchDropDetail ? 19 : 6,
-                    bottomCornerRadius: showingNotchDropDetail ? 24 : 14
-                )
-            )
-            .offset(y: pinnedPanelInset)
-            .shadow(color: showingNotchDropDetail ? .black.opacity(0.4) : .clear, radius: 10)
-            .contentShape(Rectangle())
-            .onHover { vm.handleHover($0) }
-            .onTapGesture {
-                vm.requestedFeatureID = nil
-                vm.handleTap()
-            }
-            .padding(.trailing, notchTrailingPadding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-
-            // Left cluster, glued to the notch's leading edge and growing
-            // left: workspaces capsule (outboard), notes, agents.
-            stripCluster
-                .frame(height: vm.closedNotchSize.height)
-                .padding(.trailing, clusterTrailingPadding)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        }
-        .animation(vm.state == .open ? openAnimation : closeAnimation, value: vm.state)
-        .animation(widthAnimation, value: vm.requestedFeatureID)
-        .animation(widthAnimation, value: vm.temporaryFeatureID)
-        .animation(widthAnimation, value: vm.isPinned)
-        .animation(widthAnimation, value: vm.openContentWidths)
-        .animation(widthAnimation, value: vm.openContentHeights)
-    }
-
-    // MARK: - Shared content
 
     /// One feature at a time — no tabs. Content is chosen by context:
     /// workspace peeks show workspaces; opening via a strip deep-links to

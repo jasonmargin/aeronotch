@@ -3,17 +3,6 @@ import Foundation
 /// User-tunable settings, loaded once at launch from `~/.config/aeronotch/config.json`.
 /// Every key is optional in the file; these defaults apply when missing.
 struct AeroNotchConfig: Codable, Sendable {
-    /// How the expanded popover presents itself.
-    enum PresentationMode: String, Codable, Sendable {
-        /// Panel expanding downward out of the notch.
-        case notch
-        /// Slim menu-bar-height strip attached to the left of the notch.
-        case menuBarLeft
-    }
-
-    /// Presentation mode for the *workspaces* popover.
-    /// (The Agents detail always opens at the notch itself.)
-    var presentationMode: PresentationMode = .notch
     /// Fallback polling interval for workspace state (the exec hook is the primary signal).
     var pollIntervalSeconds: TimeInterval = 2.0
     /// Expand the notch briefly on every workspace switch. Off by default —
@@ -67,7 +56,6 @@ struct AeroNotchConfig: Codable, Sendable {
     var pinnedFeatureID: String? = nil
 
     enum CodingKeys: String, CodingKey {
-        case presentationMode
         case pollIntervalSeconds, peekOnWorkspaceSwitch, peekDurationSeconds, hoverOpenDelaySeconds
         case showEmptyWorkspaces, showAppIcons, maxAppIconsPerWorkspace
         case maxOpenWidth, openHeight, hiddenWorkspaces, aerospacePath
@@ -90,7 +78,6 @@ struct AeroNotchConfig: Codable, Sendable {
         let defaults = AeroNotchConfig()
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
-        presentationMode = try c.decodeIfPresent(PresentationMode.self, forKey: .presentationMode) ?? defaults.presentationMode
         pollIntervalSeconds = try c.decodeIfPresent(TimeInterval.self, forKey: .pollIntervalSeconds) ?? defaults.pollIntervalSeconds
         peekOnWorkspaceSwitch = try c.decodeIfPresent(Bool.self, forKey: .peekOnWorkspaceSwitch) ?? defaults.peekOnWorkspaceSwitch
         peekDurationSeconds = try c.decodeIfPresent(TimeInterval.self, forKey: .peekDurationSeconds) ?? defaults.peekDurationSeconds

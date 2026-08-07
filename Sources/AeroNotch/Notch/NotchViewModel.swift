@@ -108,18 +108,17 @@ final class NotchViewModel: ObservableObject {
 
     private func heightForFeature(_ featureID: String) -> CGFloat {
         if let reported = openContentHeights[featureID] {
-            return min(
-                max(reported + closedNotchSize.height, maxOpenSize.height),
-                config.notesMaxHeight
-            )
+            let total = reported + closedNotchSize.height
+            // Workspaces grows to fit every row — no cap, no scrolling.
+            if featureID == "workspaces" {
+                return max(total, maxOpenSize.height)
+            }
+            return min(max(total, maxOpenSize.height), config.notesMaxHeight)
         }
         return featureID == NotesStore.featureID ? config.notesMaxHeight : maxOpenSize.height
     }
 
-    /// Presentation mode for the expanded popover.
-    var presentationMode: AeroNotchConfig.PresentationMode { config.presentationMode }
-
-    /// Width of the screen this notch lives on (tracked for strip/band sizing).
+    /// Width of the screen this notch lives on (tracked for strip sizing).
     private(set) var screenWidth: CGFloat
 
     /// Panel width when open (notch mode): the shared card width plus side
