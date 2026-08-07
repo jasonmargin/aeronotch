@@ -85,6 +85,11 @@ final class NotchViewModel: ObservableObject {
     /// never on hover).
     var openedViaPing = false
 
+    /// True once a vim navigation key has been used in this open session —
+    /// gates the selection ring so mouse-opened panels don't show a phantom
+    /// selection on the first row.
+    @Published var vimNavActive = false
+
     /// Transient content override: while a card is pinned, hovering a strip
     /// shows that feature *over* the pinned panel without disturbing the
     /// pin. Cleared on hover-out.
@@ -189,6 +194,7 @@ final class NotchViewModel: ObservableObject {
         cancelPeek()
         temporaryFeatureID = nil
         openedViaPing = false
+        vimNavActive = false
         state = .closed
         updateKeyboardFocus()
         stateLogger.info("forceClose()")

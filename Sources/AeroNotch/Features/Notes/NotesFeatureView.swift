@@ -122,7 +122,7 @@ struct NotesFeatureView: View {
                         case .app(let todo):
                             AppTodoRow(
                                 todo: todo,
-                                isSelected: index == store.selectionIndex,
+                                isSelected: vm.vimNavActive && index == store.selectionIndex,
                                 onToggle: { store.toggle(todo) },
                                 onDelete: { store.delete(todo) }
                             )
@@ -137,7 +137,7 @@ struct NotesFeatureView: View {
                             }
                             ObsidianTodoRow(
                                 todo: todo,
-                                isSelected: index == store.selectionIndex,
+                                isSelected: vm.vimNavActive && index == store.selectionIndex,
                                 onToggle: { store.toggleObsidian(todo) }
                             )
                         }

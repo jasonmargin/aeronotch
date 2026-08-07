@@ -83,7 +83,7 @@ struct WorkspacesFeatureView: View {
                 WorkspacePillView(
                     name: workspace,
                     isFocused: workspace == focusedWorkspace,
-                    isSelected: index == store.selectionIndex,
+                    isSelected: vm.vimNavActive && index == store.selectionIndex,
                     apps: store.snapshot.appsByWorkspace[workspace] ?? [],
                     showIcons: config.showAppIcons,
                     maxIcons: config.maxAppIconsPerWorkspace,

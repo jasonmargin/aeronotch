@@ -477,6 +477,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Enter: activate the selection (switch workspace / focus agent /
         // toggle to-do).
         if event.keyCode == 36 || event.keyCode == 76 {
+            viewModel.vimNavActive = true
             switch feature {
             case notesStore.id:
                 notesStore.activateSelection()
@@ -508,6 +509,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             return false
         }
+        viewModel.vimNavActive = true
         return true
     }
 

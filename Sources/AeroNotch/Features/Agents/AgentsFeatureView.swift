@@ -74,7 +74,7 @@ struct AgentsFeatureView: View {
             ForEach(Array(sortedSessions.enumerated()), id: \.element.id) { index, session in
                 SessionRow(
                     session: session,
-                    isSelected: index == store.selectionIndex,
+                    isSelected: vm.vimNavActive && index == store.selectionIndex,
                     action: { store.focus(session) }
                 )
             }
